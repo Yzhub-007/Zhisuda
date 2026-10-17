@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知速达 · 教师审核演示</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb;
+          --ok:#166534; --okbg:#dcfce7; --warn:#92400e; --warnbg:#fef3c7; --pri:#1d4ed8; --bad:#991b1b; --badbg:#fee2e2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,"Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  header, main { max-width:880px; margin:0 auto; padding:16px; }
+  h1 { margin:8px 0 0; font-size:1.5rem; }
+  .sub { color:var(--muted); margin:4px 0 12px; }
+  .notice { background:var(--warnbg); color:var(--warn); padding:8px 12px; border-radius:8px; font-size:.9rem; }
+  nav { display:flex; gap:8px; margin:16px 0; flex-wrap:wrap; }
+  nav button { padding:8px 16px; border:1px solid var(--line); background:var(--card); border-radius:999px; cursor:pointer; font-size:.95rem; }
+  nav button[aria-selected="true"] { background:var(--pri); color:#fff; border-color:var(--pri); }
+  button:focus-visible { outline:3px solid #93c5fd; outline-offset:2px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .q { font-weight:600; margin:0 0 8px; }
+  ul.opts { margin:0 0 8px; padding-left:20px; }
+  .ans { margin:4px 0; }
+  .evi { background:#f3f4f6; border-left:3px solid var(--pri); padding:6px 10px; margin:8px 0; font-size:.9rem; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.8rem; font-weight:600; }
+  .badge.ok { background:var(--okbg); color:var(--ok); }
+  .badge.check { background:var(--warnbg); color:var(--warn); }
+  .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .actions button { padding:6px 14px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; }
+  .actions button[aria-pressed="true"].pass { background:var(--okbg); color:var(--ok); border-color:var(--ok); }
+  .actions button[aria-pressed="true"].edit { background:var(--warnbg); color:var(--warn); border-color:var(--warn); }
+  .actions button[aria-pressed="true"].back { background:var(--badbg); color:var(--bad); border-color:var(--bad); }
+  .summary { position:sticky; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:12px 16px; }
+  .summary .in { max-width:880px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .primary { padding:8px 16px; background:var(--pri); color:#fff; border:0; border-radius:8px; cursor:pointer; }
+  textarea { width:100%; height:140px; margin-top:12px; font-family:monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>知速达 · 教师审核演示</h1>
+  <p class="sub">课程：高级数据结构与算法分析 · Lecture 1 AVL 树（对照讲义 AVL(2).pdf）</p>
+  <p class="notice">演示说明：题目由人工对照讲义撰写，用来展示界面与流程，不是 AI 生成结果，也不代表真实测试数据。讲义使用需任课教师授权。</p>
+</header>
+<main>
+  <nav role="tablist" aria-label="难度档位" id="tabs"></nav>
+  <section id="list" aria-live="polite"></section>
+  <textarea id="out" hidden readonly aria-label="导出的审核结果"></textarea>
+</main>
+<div class="summary"><div class="in">
+  <span id="stat"></span>
+  <button class="primary" id="export">导出审核结果（CSV）</button>
+</div></div>
+
+<script>
+const LEVELS = ["基础", "标准", "拓展"];
+const Q = [
+  {lv:"基础", q:"讲义中空树的高度被定义为多少？", opts:["0","-1","1","未定义"], a:"B -1", why:"空树为 -1，单个节点为 0。", ref:"§1.1 Definition 1.1, p.1-1", quote:"The height of an empty tree is defined to be -1", ok:true},
+  {lv:"基础", q:"AVL 树中任意节点的平衡因子 BF(x) 可能取哪些值？", opts:["0, 1","-1, 0, 1","-2 到 2","任意整数"], a:"B -1, 0, 1", why:"AVL 要求左右子树高度差的绝对值不超过 1。", ref:"§1.2 Definition 2.2, p.1-2", quote:"BF (x) = hL - hR", ok:true, note:"取值句的符号在文本提取时有缺失，请对照 PDF 原件确认。"},
+  {lv:"基础", q:"一棵有 n 个节点的二叉搜索树连成一条单链时，树的高度是多少？", opts:["log n","n/2","n-1","n"], a:"C n-1", why:"n 个节点有 n-1 条边，高度按边数计为 n-1。", ref:"§1.1, p.1-1", quote:"to n - 1 (if the nodes form a single chain)", ok:true},
+  {lv:"基础", q:"关于单旋转，下列说法正确的是？", opts:["旋转后可能破坏搜索树性质","旋转保持搜索树性质，且只需常数次操作","旋转需要遍历整棵子树","旋转只能用于根节点"], a:"B", why:"旋转只重新连接少数几个指针。", ref:"§1.2.1 Proposition 1.1, p.1-4", quote:"A single rotation will preserve the search tree property.", ok:true},
+  {lv:"标准", q:"设 n_h 为高度 h 的 AVL 树的最少节点数，n_0=1，n_1=2，递推式 n_h = n_{h-1} + n_{h-2} + 1。求 n_3。", opts:["5","6","7","8"], a:"C 7", why:"n_2 = n_1 + n_0 + 1 = 4，n_3 = n_2 + n_1 + 1 = 7。", ref:"§1.2.3 Proof 2.1, p.1-6", quote:"nh = nh-1 + nh-2 + 1（讲义原文下标写法）", ok:true},
+  {lv:"标准", q:"插入新节点后，从最近的失衡节点 x 朝新节点方向向下走两步，先左后右。应采用哪种调整？", opts:["一次单旋转","一次双旋转","不需要调整","重建整棵树"], a:"B 双旋转（zig-zag）", why:"两步反向为 zig-zag，用双旋转；同向为 zig-zig，用单旋转。", ref:"§1.2.2, p.1-5", quote:"it is a zig-zag, and a double rotation is called for", ok:true},
+  {lv:"标准", q:"向 AVL 树插入新节点后，哪些节点的高度可能变化？", opts:["整棵树所有节点","只有根到新节点路径上的节点","只有新节点的兄弟","只有叶子节点"], a:"B", why:"其他节点的子树没有变化。", ref:"§1.2.2 Proposition 1.2, p.1-5", quote:"nodes on the path from the root to the newly inserted node only", ok:true},
+  {lv:"拓展", q:"简述：为什么 n 个节点的 AVL 树高度是 O(log n)？", opts:null, a:"设 n_h 为高度 h 的 AVL 树最少节点数，n_h = n_{h-1} + n_{h-2} + 1，解得 n_h = F_{h+3} - 1。n_h 随 h 指数增长，反推 h = O(ln n)。", why:"关键是从最少节点数反推高度上界。", ref:"§1.2.3 Proof 2.1, p.1-6", quote:"This implies that h = O(ln n)", ok:true},
+  {lv:"拓展", q:"简述：zig-zig 情形下，为什么单旋转就能让受影响子树的高度恢复到插入前？", opts:null, a:"设 Z 高度 h，X、Y 也为 h，插入前 k2 子树高 h+2。插入后 k2 高 h+3 失衡。右旋后 k1 为根的子树高 h+2，与插入前相同，上层不再失衡。", why:"关键是旋转后子树高度是否恢复。", ref:"§1.2.2 Case 1, p.1-6", quote:"The height of the tree root at k1 is h + 2.", ok:true},
+  {lv:"拓展", q:"简述：插入和删除在重平衡时所需的旋转次数有何不同？原因是什么？", opts:null, a:"插入后一次单旋或双旋即可。删除可能需要 O(ln n) 次旋转。原因：插入时旋转使子树高度恢复，不向上传导；删除时旋转后子树高度可能降低，失衡会沿路径向上传导。", why:"结论有讲义明确表述，传导原因是推理。", ref:"§1.2.4 Proof 2.2, p.1-7", quote:"we might need O(ln n) rotations for the delete", ok:false, note:"“为什么会向上传导”讲义没有解释，属于推理，需教师核验。"}
+];
+const state = Q.map(() => null);   // 通过 / 修改 / 退回
+let cur = "基础";
+
+const tabs = document.getElementById("tabs");
+LEVELS.forEach(l => {
+  const b = document.createElement("button");
+  b.textContent = l; b.setAttribute("role","tab");
+  b.onclick = () => { cur = l; render(); };
+  tabs.appendChild(b);
+});
+
+function render() {
+  [...tabs.children].forEach(b => b.setAttribute("aria-selected", b.textContent === cur));
+  const list = document.getElementById("list");
+  list.replaceChildren();
+  Q.forEach((it, i) => {
+    if (it.lv !== cur) return;
+    const c = document.createElement("article"); c.className = "card";
+    const opts = it.opts ? "<ul class='opts' style='list-style:upper-alpha'>" + it.opts.map(o => `<li>${o}</li>`).join("") + "</ul>" : "";
+    c.innerHTML = `
+      <p class="q">${i+1}. ${it.q}</p>${opts}
+      <p class="ans"><b>答案：</b>${it.a}</p>
+      <p class="ans"><b>解析：</b>${it.why}</p>
+      <div class="evi"><b>原文依据 ${it.ref}：</b>${it.quote}</div>
+      <span class="badge ${it.ok ? "ok" : "check"}">${it.ok ? "已核对" : "需人工核验"}</span>
+      ${it.note ? `<p class="ans" style="color:var(--warn)">${it.note}</p>` : ""}
+      <div class="actions"></div>`;
+    const act = c.querySelector(".actions");
+    [["通过","pass"],["修改","edit"],["退回","back"]].forEach(([t, cls]) => {
+      const b = document.createElement("button");
+      b.textContent = t; b.className = cls;
+      b.setAttribute("aria-pressed", state[i] === t);
+      b.onclick = () => { state[i] = state[i] === t ? null : t; render(); };
+      act.appendChild(b);
+    });
+    list.appendChild(c);
+  });
+  const n = k => state.filter(s => s === k).length;
+  document.getElementById("stat").textContent =
+    `通过 ${n("通过")} · 修改 ${n("修改")} · 退回 ${n("退回")} · 未审核 ${n(null)} / ${Q.length}`;
+}
+
+document.getElementById("export").onclick = () => {
+  const esc = s => `"${String(s).replace(/"/g, '""')}"`;
+  const rows = [["编号","档位","题目","答案","原文依据","依据状态","教师意见"]];
+  Q.forEach((it, i) => rows.push([i+1, it.lv, it.q, it.a, `${it.ref} ${it.quote}`, it.ok ? "已核对" : "需人工核验", state[i] || "未审核"]));
+  const out = document.getElementById("out");
+  out.value = rows.map(r => r.map(esc).join(",")).join("\n");
+  out.hidden = false; out.select();
+};
+render();
+</script>
+</body>
+</html>

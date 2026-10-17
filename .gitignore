@@ -1,0 +1,13 @@
+# 密钥
+.env
+.env.*
+!.env.example
+
+# 依赖与系统文件
+node_modules/
+.DS_Store
+Thumbs.db
+
+# 讲义原件：首页声明课堂外分发需任课教师许可，取得授权前不进入公开仓库
+讲义/
+*.pdf

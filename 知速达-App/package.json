@@ -1,0 +1,12 @@
+{
+  "name": "zhisuda-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "知速达：基于课程资料溯源的 AI 智能复习包生成工具（初版框架）",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": { "node": ">=22" }
+}
