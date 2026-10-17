@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知速达 · 教师工作台</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb; --pri:#1d4ed8; --ok:#166534; --okbg:#dcfce7; --warn:#92400e; --warnbg:#fef3c7; --bad:#991b1b; --badbg:#fee2e2; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  main { max-width:880px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:8px 0 0; } h2 { font-size:1.1rem; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin:12px 0; }
+  label { display:block; margin-top:10px; font-weight:600; }
+  input, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  textarea { min-height:160px; }
+  button { padding:8px 16px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; font:inherit; }
+  button.primary { background:var(--pri); color:#fff; border-color:var(--pri); margin-top:12px; }
+  button[disabled] { opacity:.6; cursor:wait; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid #93c5fd; outline-offset:2px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.8rem; font-weight:600; }
+  .badge.ok { background:var(--okbg); color:var(--ok); } .badge.check { background:var(--warnbg); color:var(--warn); }
+  .evi { background:#f3f4f6; border-left:3px solid var(--pri); padding:6px 10px; margin:8px 0; font-size:.9rem; word-break:break-word; }
+  .err { background:var(--badbg); color:var(--bad); padding:8px 12px; border-radius:8px; margin-top:12px; }
+  .notice { background:var(--warnbg); color:var(--warn); padding:8px 12px; border-radius:8px; font-size:.9rem; }
+  .acts { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .acts button[aria-pressed="true"] { background:var(--pri); color:#fff; border-color:var(--pri); }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; } td, th { border:1px solid var(--line); padding:6px; text-align:left; vertical-align:top; }
+</style>
+</head>
+<body>
+<main>
+  <h1>知速达 · 教师工作台</h1>
+  <p class="muted">基于课程资料溯源的 AI 智能复习包生成工具（初版）</p>
+  <p class="notice">AI 生成的内容必须由教师逐题审核后再发给学生。使用讲义前请确认已取得任课教师授权。</p>
+
+  <section class="card" aria-labelledby="h-gen">
+    <h2 id="h-gen">1. 上传讲义，生成复习包</h2>
+    <label for="course">课程名称</label><input id="course" value="高级数据结构与算法分析">
+    <label for="topic">本讲主题</label><input id="topic" value="Lecture 1 AVL 树">
+    <label for="source">讲义文字（粘贴文本，至少 200 字）</label><textarea id="source"></textarea>
+    <button class="primary" id="gen">生成复习包</button>
+    <div id="genErr" class="err" role="alert" hidden></div>
+  </section>
+
+  <section id="result" hidden aria-live="polite">
+    <h2>2. 教师审核</h2>
+    <p id="sum" class="muted"></p>
+    <div id="items"></div>
+    <button class="primary" id="exp">导出审核结果（CSV）</button>
+    <textarea id="csv" readonly hidden aria-label="导出结果"></textarea>
+  </section>
+
+  <section class="card" aria-labelledby="h-fb">
+    <h2 id="h-fb">3. 汇总学生反馈</h2>
+    <label for="records">粘贴学生反馈数据（学生端“生成反馈数据”的输出，多人合并）</label>
+    <textarea id="records" placeholder="学生 | 档位 | 做错的题号 | 卡点描述"></textarea>
+    <button class="primary" id="fb">汇总共性问题</button>
+    <div id="fbErr" class="err" role="alert" hidden></div>
+    <div id="fbOut"></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
