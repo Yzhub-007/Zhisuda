@@ -122,6 +122,8 @@ export function studentPack(pack) {
 }
 
 export function submitAttempt(pack, input) {
+  const practiceMode = input.practiceMode ?? "test";
+  if (!["study", "test"].includes(practiceMode)) throw fail("请选择学习模式或模拟测试。");
   const ids = input.questionIds;
   if (!Array.isArray(ids) || !ids.length || ids.length > pack.questions.length || new Set(ids).size !== ids.length) throw fail("请选择有效的练习题目。");
   const answers = input.answers;
@@ -139,7 +141,8 @@ export function submitAttempt(pack, input) {
       answerText: q.type === "选择" ? `${q.answer} · ${q.options[q.answer.charCodeAt(0) - 65]}` : q.answer,
       correct: q.type === "选择" ? answer === q.answer : null, selfAssessment: null };
   });
-  return { id: randomUUID(), packId: pack.id, createdAt: new Date().toISOString(), nickname: text(input.nickname, 20) || "匿名同学", results, feedback: null };
+  const attempt = { id: randomUUID(), packId: pack.id, practiceMode, createdAt: new Date().toISOString(), nickname: text(input.nickname, 20) || "匿名同学", results, feedback: null };
+  return practiceMode === "study" ? saveAssessments(attempt, input) : attempt;
 }
 
 export function saveAssessments(attempt, input) {

@@ -49,7 +49,7 @@ test("用户 API：连接测试无课程、并发配置独立、密钥不进入�
   });
   const upstreamUrl = await loopback(upstream);
   t.after(() => new Promise(resolve => upstream.close(resolve)));
-  const root = path.resolve(app, "..", "..", "_verification"); await mkdir(root, { recursive: true });
+  const root = process.env.ZHISUDA_TEST_ROOT || path.resolve(app, "..", "..", "_verification"); await mkdir(root, { recursive: true });
   const directory = await mkdtemp(path.join(root, "byok-"));
   const child = spawn(process.execPath, ["server.js"], { cwd: app, windowsHide: true, env: { ...process.env, PORT: "0", ZHISUDA_DATA_DIR: directory, LLM_MOCK: "0", LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "" } });
   let logs = "";

@@ -317,6 +317,14 @@ async function handle(req, res) {
     return send(res, 200, { report: feedbackReport(publication, data.attempts) });
   }
 
+  if (req.method === "POST" && /^\/api\/publications\/[^/]+\/check$/.test(url.pathname)) {
+    const b = await readJson(req);
+    if (!Array.isArray(b.questionIds) || b.questionIds.length !== 1) return send(res, 400, { error: "学习模式请逐题作答后核对。" });
+    const { publication } = await getPublication(store, pathPart(url, 3));
+    const checked = submitAttempt(publication, { ...b, practiceMode: "study" });
+    return send(res, 200, { result: checked.results[0] });
+  }
+
   if (req.method === "POST" && /^\/api\/publications\/[^/]+\/attempts$/.test(url.pathname)) {
     const b = await readJson(req);
     const { publication } = await getPublication(store, pathPart(url, 3));

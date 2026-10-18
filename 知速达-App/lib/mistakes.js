@@ -24,7 +24,7 @@ export function attemptHistory(data) {
     const pack = data.publications.find(p => p.id === attempt.packId);
     const objective = attempt.results.filter(r => r.type === "选择");
     const written = attempt.results.filter(r => r.type === "简答");
-    return { id: attempt.id, packId: attempt.packId, topic: pack?.topic || "复习包", course: pack?.course || "", createdAt: attempt.createdAt,
+    return { id: attempt.id, packId: attempt.packId, practiceMode: attempt.practiceMode || "test", topic: pack?.topic || "复习包", course: pack?.course || "", createdAt: attempt.createdAt,
       total: attempt.results.length, objectiveTotal: objective.length, objectiveCorrect: objective.filter(r => r.correct).length,
       writtenTotal: written.length, writtenAssessed: written.filter(r => r.selfAssessment).length };
   });

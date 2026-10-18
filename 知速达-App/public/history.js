@@ -8,8 +8,10 @@ function render() {
     const objective = h.objectiveTotal ? `客观题 ${h.objectiveCorrect}/${h.objectiveTotal} 正确` : "无客观题";
     const written = h.writtenTotal ? `简答 ${h.writtenAssessed}/${h.writtenTotal} 已自评` : "无简答题";
     card.append(mk("p", `${h.course} / ${h.topic}`, "eyebrow"), mk("h2", new Date(h.createdAt).toLocaleString("zh-CN")),
-      mk("p", `${h.total} 题 · ${objective} · ${written}`, "small"));
-    const link = mk("a", "再练这个复习包 →", "button secondary"); link.href = "/student.html?pack=" + encodeURIComponent(h.packId); card.append(link);
+      mk("p", `${h.practiceMode === "study" ? "学习模式" : "模拟测试"} · ${h.total} 题 · ${objective} · ${written}`, "small"));
+    const actions = mk("div", "", "actions");
+    const result = mk("a", "查看本次作答与反馈", "button primary"); result.href = "/student.html?pack=" + encodeURIComponent(h.packId) + "&attempt=" + encodeURIComponent(h.id);
+    const link = mk("a", "开始新一轮 →", "button secondary"); link.href = "/student.html?pack=" + encodeURIComponent(h.packId) + "&new=1"; actions.append(result, link); card.append(actions);
     return card;
   }));
 }

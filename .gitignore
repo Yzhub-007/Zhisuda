@@ -15,3 +15,4 @@ Thumbs.db
 
 # 本地演示数据（包含课程片段和学生反馈，不进入公开仓库）
 知速达-App/data/
+知速达-App/_verification/

@@ -9,7 +9,7 @@ import { demoInput } from "../lib/demo.js";
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 async function start() {
-  const root = path.resolve(app, "..", "..", "_verification"); await mkdir(root, { recursive: true });
+  const root = process.env.ZHISUDA_TEST_ROOT || path.resolve(app, "..", "..", "_verification"); await mkdir(root, { recursive: true });
   const directory = await mkdtemp(path.join(root, "features-"));
   const child = spawn(process.execPath, ["server.js"], { cwd: app, windowsHide: true, env: { ...process.env, PORT: "0", ZHISUDA_DATA_DIR: directory, LLM_MOCK: "1" } });
   const url = await new Promise((resolve, reject) => {
@@ -55,6 +55,35 @@ test("练习：工作区隔离、幂等提交、错题收录与重做掌握", as
   assert.equal(history.length, 3); assert.equal(other.history.length, 0);
   assert.equal(history[0].writtenTotal, 1); assert.equal(history[0].writtenAssessed, 1);
   assert.equal(history[1].objectiveCorrect, 1); assert.equal(history[2].objectiveCorrect, 0);
+});
+
+test("学习与测试：先作答才给单题反馈，核对不增加场次，完成后保留模式与自评", async t => {
+  const service = await start(); t.after(() => service.close());
+  const req = client(service.url), other = client(service.url);
+  const { draft } = await req("/api/demo", "POST", {});
+  const { publication: pack } = await req(`/api/drafts/${draft.id}/publish`, "POST", { revision: draft.revision, reviewMode: "self-study" });
+  const route = `/api/publications/${pack.id}`;
+  const written = pack.questions.find(q => q.type === "简答"), choice = pack.questions.find(q => q.type === "选择");
+  const payload = { questionIds: [written.id], answers: { [written.id]: "我的回答" } };
+  await req(route + "/check", "POST", { questionIds: [written.id], answers: {} }, 422);
+  await req(route + "/check", "POST", { questionIds: [written.id, choice.id], answers: {} }, 400);
+  await other(route + "/check", "POST", payload, 404);
+  const { result } = await req(route + "/check", "POST", payload);
+  assert.equal(result.questionId, written.id); assert.equal(result.answer, written.answer); assert.equal(result.quote, written.quote);
+  assert.equal((await req("/api/history")).history.length, 0);
+  assert.equal((await req("/api/mistakes")).mistakes.length, 0);
+  const { attempt } = await req(route + "/attempts", "POST", { ...payload, practiceMode: "study", assessments: { [written.id]: "部分掌握" }, submissionId: randomUUID() });
+  assert.equal(attempt.practiceMode, "study"); assert.equal(attempt.results[0].selfAssessment, "部分掌握");
+  assert.equal((await req("/api/mistakes")).mistakes[0].state, "部分掌握");
+  const testInput = { questionIds: [choice.id], answers: { [choice.id]: choice.answer }, practiceMode: "test", submissionId: randomUUID() };
+  const testAttempt = (await req(route + "/attempts", "POST", testInput)).attempt;
+  const repeat = (await req(route + "/attempts", "POST", testInput)).attempt;
+  assert.equal(testAttempt.id, repeat.id);
+  const { history } = await req("/api/history");
+  assert.deepEqual(history.map(h => h.practiceMode), ["test", "study"]);
+  assert.equal(history[1].writtenAssessed, 1);
+  assert.equal((await req("/api/attempts/" + attempt.id)).attempt.results[0].selfAssessment, "部分掌握");
+  await req(route + "/attempts", "POST", { ...payload, practiceMode: "invalid" }, 400);
 });
 
 test("生成任务：校验自选题数并返回真实阶段与题数", async t => {

@@ -343,7 +343,7 @@ $("legacyFile").onchange = async event => {
   } catch (e) { $("legacyStatus").textContent = "未完成导入：" + e.message; }
   event.target.value = "";
 };
-function validPracticeId(id) { return typeof id === "string" && publications.some(p => id === p.id || id.startsWith(p.id + ":only:")); }
+function validPracticeId(id) { return typeof id === "string" && publications.some(p => id === p.id || id.startsWith(p.id + ":only:") || id.startsWith(p.id + ":attempt:")); }
 $("backupWorkspace").onclick = async () => {
   $("backupWorkspace").disabled = true;
   try {
@@ -354,7 +354,7 @@ $("backupWorkspace").onclick = async () => {
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i), id = key?.slice(sessionKey("").length);
-        if (!key?.startsWith(sessionKey("")) || !packIds.has(id?.split(":only:")[0])) continue;
+        if (!key?.startsWith(sessionKey("")) || !packIds.has(id?.split(/:only:|:attempt:/)[0])) continue;
         const data = readSession(id); if (data) backup.browserPractice.push({ id, data });
       }
     } catch { browserComplete = false; }
