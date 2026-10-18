@@ -28,8 +28,10 @@ test("API：生成演示→编辑→审核→发布→作答→反馈→重启�
   const directory = await mkdtemp(path.join(root, "api-"));
   let service = await start(directory);
   t.after(async () => { await service.close(); });
+  let cookie = "";
   const req = async (route, method = "GET", body, expected = 200) => {
-    const res = await fetch(service.url + route, { method, headers: body === undefined ? {} : { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const res = await fetch(service.url + route, { method, headers: { Cookie: cookie, ...(body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    cookie = res.headers.get("set-cookie")?.split(";")[0] || cookie;
     const data = await res.json(); assert.equal(res.status, expected, JSON.stringify(data)); return data;
   };
   assert.deepEqual((await req("/api/state")).drafts, []);
@@ -71,7 +73,7 @@ test("API：生成演示→编辑→审核→发布→作答→反馈→重启�
   const restored = await req("/api/state");
   assert.equal(restored.drafts[0].id, d.id); assert.equal(restored.publications[0].id, p.id);
   assert.equal((await req(`/api/publications/${p.id}/report`)).report.completed, 1);
-  assert.equal(JSON.parse(await readFile(path.join(directory, "workspace.json"), "utf8")).attempts.length, 1);
+  assert.equal(JSON.parse(await readFile(path.join(directory, "workspaces", cookie.split("=")[1], "workspace.json"), "utf8")).attempts.length, 1);
 });
 
 test("API：默认自助练习与可选人工核对分别保存，练习及未核对标识重启后保留", async t => {
@@ -80,8 +82,10 @@ test("API：默认自助练习与可选人工核对分别保存，练习及未�
   const directory = await mkdtemp(path.join(root, "self-study-"));
   let service = await start(directory);
   t.after(async () => { await service.close(); });
+  let cookie = "";
   const req = async (route, method = "GET", body, expected = 200) => {
-    const res = await fetch(service.url + route, { method, headers: body === undefined ? {} : { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const res = await fetch(service.url + route, { method, headers: { Cookie: cookie, ...(body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    cookie = res.headers.get("set-cookie")?.split(";")[0] || cookie;
     const result = await res.json(); assert.equal(res.status, expected, JSON.stringify(result)); return result;
   };
   let { draft: d } = await req("/api/demo", "POST", {});

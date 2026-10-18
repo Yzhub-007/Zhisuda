@@ -103,6 +103,7 @@ export function publishDraft(draft, revision, reviewMode = "reviewed") {
     id: randomUUID(), draftId: draft.id, draftRevision: draft.revision,
     course: draft.course, topic: draft.topic, goal: draft.goal, mode: draft.mode,
     reviewMode, unreviewedCount, excludedCount: draft.questions.length - questions.length,
+    requestedCount: draft.generation?.requestedCount ?? null, generatedCount: draft.questions.length,
     createdAt: new Date().toISOString(), questions: structuredClone(questions),
     sourceName: draft.sourceDocument?.name || "课程文字", sourceFingerprint: draft.sourceDocument?.fingerprint || null,
     evidenceBoundary: unreviewedCount ? `程序仅核对引用存在性；${unreviewedCount} 道题未经人工核对，答案和解析可能有误。` : "程序仅核对引用存在性；答案支持性已由使用者人工确认，仍不代表科学事实已被独立验证。",
@@ -115,6 +116,7 @@ export function studentPack(pack) {
     id: pack.id, course: pack.course, topic: pack.topic, goal: pack.goal, mode: pack.mode, createdAt: pack.createdAt,
     reviewMode: pack.reviewMode || "reviewed", unreviewedCount: pack.unreviewedCount || 0, excludedCount: pack.excludedCount || 0,
     evidenceBoundary: pack.evidenceBoundary,
+    requestedCount: pack.requestedCount ?? null, generatedCount: pack.generatedCount ?? pack.questions.length,
     questions: pack.questions.map(({ id, question, options, level, type, knowledgeName }) => ({ id, question, options, level, type, knowledgeName })),
   };
 }
@@ -138,6 +140,17 @@ export function submitAttempt(pack, input) {
       correct: q.type === "选择" ? answer === q.answer : null, selfAssessment: null };
   });
   return { id: randomUUID(), packId: pack.id, createdAt: new Date().toISOString(), nickname: text(input.nickname, 20) || "匿名同学", results, feedback: null };
+}
+
+export function saveAssessments(attempt, input) {
+  if (attempt.feedback) throw fail("本次自评已完成，请开始新一轮练习。", 409);
+  const out = structuredClone(attempt);
+  for (const [id, rating] of Object.entries(input.assessments || {})) {
+    const row = out.results.find(r => r.questionId === id && r.type === "简答");
+    if (!row || !["掌握", "部分掌握", "未掌握"].includes(rating)) throw fail("简答自评无效。", 422);
+    row.selfAssessment = rating;
+  }
+  return out;
 }
 
 export function saveFeedback(attempt, input) {

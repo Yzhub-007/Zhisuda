@@ -17,7 +17,7 @@ export const GENERATE_SYSTEM = `你是“知速达”的课程复习内容生成
   "questions": [ { "level": "基础|标准|拓展", "type": "选择|简答", "question": "", "options": ["", "", "", ""],
                    "answer": "", "explanation": "", "knowledgeName": "", "ref": "", "quote": "", "status": "" } ]
 }
-知识点以材料覆盖范围为准，最多 8 个；总共优先生成 6 道题，基础、标准、拓展各 2 道，材料不足可少于 6 道。简答题不需要 options；选择题答案为单个大写字母。`;
+知识点以材料覆盖范围为准，最多 8 个；题数以用户的 questionCount 为目标，基础、标准、拓展尽量均衡，材料不足时减少数量，避免重复和换句话凑题。简答题不需要 options；选择题答案为单个大写字母。`;
 
 export const FEEDBACK_SYSTEM = `你是“知速达”的教学反馈分析助手。
 只依据用户提供的学生反馈，不要臆测未出现的问题。每条共性问题必须对应一个知识点并写出人数。
@@ -30,6 +30,6 @@ export const FEEDBACK_SYSTEM = `你是“知速达”的教学反馈分析助手
   "individual": [ "" ]
 }`;
 
-export function generateUser({ course, topic, goal, source, sourceDocument }) {
-  return JSON.stringify({ course, topic, goal, materialName: sourceDocument?.name || "课程文字", material: sourceDocument ? sourceDocument.blocks.map(({ id, label, text }) => ({ id, location: label, text })) : source });
+export function generateUser({ course, topic, goal, source, sourceDocument, questionCount = 6 }) {
+  return JSON.stringify({ course, topic, goal, questionCount, materialName: sourceDocument?.name || "课程文字", material: sourceDocument ? sourceDocument.blocks.map(({ id, label, text }) => ({ id, location: label, text })) : source });
 }

@@ -1,6 +1,8 @@
 import { $, mk, api, error, download, highlightQuote } from "./shared.js";
 import { getModelConfig, isModelConfigured, setServerModel, setModelBusy } from "./model-settings.js";
+import { readSession, writeSession, sessionKey } from "./practice-storage.js";
 let draft = null, selected = null, reportId = null, workspaceBusy = false, publications = [], sourceDocument = null, importBusy = false, generating = false;
+let latestGeneration = null, generationClock = null;
 const edits = new Map(), editing = new Set();
 const reviewNames = { pending: "待审核", approved: "已通过", rejected: "已退回" };
 const modeName = mode => mode === "demo" ? "固定演示样例" : mode === "mock" ? "固定模拟结果（不随材料变化）" : "模型生成 · 待人工核验";
@@ -30,13 +32,15 @@ async function refreshState() {
   publications = state.publications; setServerModel(state.model);
   $("noPublications").hidden = publications.length > 0;
   $("publicationList").replaceChildren(...publications.map(p => {
-    const li = mk("li"), link = mk("a", p.topic + " · " + p.total + " 道题");
-    link.href = "/student.html?pack=" + encodeURIComponent(p.id); link.target = "_blank"; link.rel = "noopener";
+    const session = readSession(p.id);
+    const answered = Object.values(session?.answers || {}).filter(v => String(v).trim()).length;
+    const li = mk("li"), link = mk("a", p.topic + " · " + p.total + " 道题" + (session?.attemptId ? " · 查看上次结果" : answered ? ` · 继续练习（已答 ${answered} 题）` : " · 开始练习"));
+    link.href = "/student.html?pack=" + encodeURIComponent(p.id);
     li.append(link, mk("p", p.course + " · " + modeName(p.mode) + " · " + (p.reviewMode === "self-study" ? "自助练习" : "人工核对") + " · " + new Date(p.createdAt).toLocaleString("zh-CN"), "small muted"));
     const actions = mk("div", "", "actions");
     const report = mk("button", "查看学习记录", "button secondary"); report.onclick = () => loadReport(p.id).catch(e => error("actionErr", e.message));
-    const exp = mk("button", "导出 JSON", "button secondary"); exp.onclick = () => exportPublication(p.id).catch(e => error("actionErr", e.message));
-    const copy = mk("button", "复制链接", "button secondary"); copy.onclick = async () => {
+    const exp = mk("button", "仅导出题目 JSON", "button secondary"); exp.title = "含题目、答案和引用；恢复记录请使用上方“备份全部学习记录”。"; exp.onclick = () => exportPublication(p.id).catch(e => error("actionErr", e.message));
+    const copy = mk("button", "复制本机链接", "button secondary"); copy.onclick = async () => {
       try { await navigator.clipboard.writeText(link.href); copy.textContent = "已复制"; }
       catch { error("actionErr", "请复制此本地练习链接：" + link.href); }
     };
@@ -225,22 +229,106 @@ async function create(kind) {
   if (generating || workspaceBusy || importBusy) return;
   if (edits.size) { error("genErr", "请先保存工作台中的修改，再创建新草稿。"); return; }
   if (kind !== "demo" && !isModelConfigured()) { error("genErr", "真实模型尚未配置。请点击“设置自己的 API”填写，或先载入固定样例。"); return; }
-  generating = true; setModelBusy(true); error("genErr"); $("demo").disabled = true; updateGenerate(); $("source").disabled = true; $("fileInput").disabled = true;
-  ["navImport", "navReview", "navLibrary"].forEach(id => { $(id).disabled = true; });
+  const questionCount = Number($("requestedQuestions").value);
+  if (kind !== "demo" && (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 30)) { error("genErr", "请选择 1—30 之间的整数题数。"); return; }
+  generating = true; workspaceBusy = true; setModelBusy(true); error("genErr"); $("demo").disabled = true; updateGenerate(); renderDraft(); $("source").disabled = true; $("fileInput").disabled = true;
   const button = kind === "demo" ? $("demo") : $("gen"), label = button.textContent; button.textContent = kind === "demo" ? "正在载入…" : "生成中，请稍候（最多 120 秒）…";
   try {
     const modelConfig = getModelConfig();
-    const payload = kind === "demo" ? {} : { course: value("course"), topic: value("topic"), goal: value("goal"), source: value("source"), ...(sourceDocument ? { sourceDocument } : {}), ...(modelConfig ? { modelConfig } : {}) };
-    const result = await api(kind === "demo" ? "/api/demo" : "/api/generate", "POST", payload);
+    const payload = kind === "demo" ? {} : { questionCount, course: value("course"), topic: value("topic"), goal: value("goal"), source: value("source"), ...(sourceDocument ? { sourceDocument } : {}), ...(modelConfig ? { modelConfig } : {}) };
+    let result;
+    if (kind === "demo") result = await api("/api/demo", "POST", payload);
+    else {
+      showGeneration({ stage: "prepare", startedAt: Date.now() });
+      const { jobId } = await api("/api/generation-jobs", "POST", payload);
+      store("activeJob", jobId); store("jobPracticeMode", value("practiceMode"));
+      result = await waitGeneration(jobId);
+      store("activeJob", "");
+    }
     draft = result.draft; selected = draft.questions[0].id; edits.clear(); editing.clear(); store("lastDraft", draft.id);
     await refreshState(); renderDraft(); switchTab(false); showView("review"); window.scrollTo({ top: 0, behavior: "smooth" });
     if (value("practiceMode") === "direct") {
       try { await startDirectPractice(); }
       catch (e) { error("actionErr", "草稿已保存。" + e.message); }
     }
-  } catch (e) { error("genErr", e.message); }
-  finally { generating = false; setModelBusy(false); button.textContent = label; $("demo").disabled = false; $("source").disabled = false; $("fileInput").disabled = false; ["navImport", "navReview", "navLibrary"].forEach(id => { $(id).disabled = false; }); updateGenerate(); }
+  } catch (e) {
+    error("genErr", e.message);
+    if (kind !== "demo") showGeneration({ ...latestGeneration, stage: "failed", error: e.message });
+  }
+  finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); button.textContent = label; $("demo").disabled = false; $("source").disabled = false; $("fileInput").disabled = false; updateGenerate(); renderDraft(); }
 }
+function showGeneration(job) {
+  const first = !latestGeneration || (["done", "failed"].includes(latestGeneration.stage) && !["done", "failed"].includes(job.stage));
+  latestGeneration = job;
+  const labels = { prepare: "1 / 4 · 准备课程材料", model: "2 / 4 · 模型正在生成题目", validate: "3 / 4 · 核对题目与原文引用", save: "4 / 4 · 保存复习包", done: "生成完成，草稿已保存", failed: "本次生成未完成" };
+  $("generationStage").textContent = labels[job.stage];
+  $("generationSummary").hidden = false;
+  $("generationSummaryText").textContent = labels[job.stage] + (job.error ? "：" + job.error : "");
+  $("openGeneration").hidden = ["done", "failed"].includes(job.stage);
+  const step = ({ prepare: 0, model: 1, validate: 2, save: 3, done: 4, failed: 0 })[job.stage];
+  $("generationProgress").classList.toggle("is-waiting", job.stage === "model");
+  $("generationProgress").setAttribute("aria-valuetext", labels[job.stage]);
+  if (job.stage === "model") $("generationProgress").removeAttribute("aria-valuenow");
+  else $("generationProgress").setAttribute("aria-valuenow", String(step));
+  $("generationFill").style.width = job.stage === "model" ? "42%" : (step * 25) + "%";
+  [...$("generationSteps").children].forEach((node, i) => { node.classList.toggle("complete", i < step); node.classList.toggle("current", i === step); });
+  const updateTime = () => { $("generationTime").textContent = `已用 ${Math.max(0, Math.floor((Date.now() - latestGeneration.startedAt) / 1000))} 秒 · 模型请求最多等待 120 秒`; };
+  updateTime();
+  if (!generationClock && !["done", "failed"].includes(job.stage)) generationClock = setInterval(updateTime, 1000);
+  if (first && !$("generationPanel").open && !["done", "failed"].includes(job.stage)) $("generationPanel").showModal();
+}
+function finishGeneration() { clearInterval(generationClock); generationClock = null; $("generationPanel").close(); }
+$("minimizeGeneration").onclick = () => $("generationPanel").close();
+$("openGeneration").onclick = () => $("generationPanel").showModal();
+async function waitGeneration(jobId) {
+  while (true) {
+    const { job } = await api("/api/generation-jobs/" + encodeURIComponent(jobId)); showGeneration(job);
+    if (job.stage === "failed") { store("activeJob", ""); throw new Error(job.error); }
+    if (job.stage === "done") return api("/api/drafts/" + job.draftId);
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+}
+$("legacyFile").onchange = async event => {
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    if (file.size > 20 * 1024 * 1024) throw new Error("备份超过 20 MB，请保留原件并联系维护者分批迁移。");
+    const backup = JSON.parse(await file.text());
+    await api("/api/workspace/import", "POST", backup);
+    await refreshState();
+    let restoredCount = 0, browserFailed = false;
+    for (const item of Array.isArray(backup.browserPractice) ? backup.browserPractice : []) {
+      if (!validPracticeId(item.id) || !item.data || item.data.version !== 1 || typeof item.data.answers !== "object" || !item.data.answers) continue;
+      const current = readSession(item.id);
+      if (current && current.savedAt >= (item.data.savedAt || 0)) continue;
+      try { writeSession(item.id, item.data); restoredCount++; } catch { browserFailed = true; }
+    }
+    $("legacyStatus").textContent = "已恢复并合并学习记录，原文件和已有记录均保留。" + (restoredCount ? ` 已恢复 ${restoredCount} 份暂存练习。` : "") + (browserFailed ? " 但浏览器未能保存部分暂存答案，请保留备份。" : "");
+    await refreshState();
+  } catch (e) { $("legacyStatus").textContent = "未完成导入：" + e.message; }
+  event.target.value = "";
+};
+function validPracticeId(id) { return typeof id === "string" && publications.some(p => id === p.id || id.startsWith(p.id + ":only:")); }
+$("backupWorkspace").onclick = async () => {
+  $("backupWorkspace").disabled = true;
+  try {
+    const backup = await api("/api/workspace/export");
+    backup.browserPractice = [];
+    const packIds = new Set(backup.publications.map(p => p.id));
+    let browserComplete = true;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i), id = key?.slice(sessionKey("").length);
+        if (!key?.startsWith(sessionKey("")) || !packIds.has(id?.split(":only:")[0])) continue;
+        const data = readSession(id); if (data) backup.browserPractice.push({ id, data });
+      }
+    } catch { browserComplete = false; }
+    const content = JSON.stringify(backup, null, 2);
+    if (new Blob([content]).size > 20 * 1024 * 1024) throw new Error("记录已超过当前 20 MB 恢复限制。请保留应用 data 文件夹，联系维护者分批备份。");
+    download("知速达-全部学习记录-" + new Date().toISOString().slice(0, 10) + ".json", content);
+    $("legacyStatus").textContent = "已开始下载备份，请在浏览器的下载列表确认保存位置。日常使用无需导入；换环境或找不回记录时再恢复。" + (browserComplete ? "" : " 浏览器存储不可用：本次仅备份电脑中已保存的记录，未包含暂存答案。");
+  } catch (e) { $("legacyStatus").textContent = "备份未完成：" + e.message; }
+  finally { $("backupWorkspace").disabled = false; }
+};
 $("gen").onclick = () => create("live"); $("demo").onclick = () => create("demo");
 async function startDirectPractice() {
   const { publication } = await api("/api/drafts/" + draft.id + "/publish", "POST", { revision: draft.revision, reviewMode: "self-study" });
@@ -289,8 +377,20 @@ $("exportReview").onclick = () => {
 window.addEventListener("beforeunload", event => { if (edits.size) { event.preventDefault(); event.returnValue = ""; } });
 async function init() {
   const state = await refreshState(), id = state.drafts.find(d => d.id === restored("lastDraft"))?.id || state.drafts[0]?.id;
-  const view = restored("lastView") || "import";
+  const requestedView = new URLSearchParams(location.search).get("view");
+  const view = requestedView || restored("lastView") || "import";
   if (id) await loadDraft(id);
   previewImport(); showView(["import", "review", "library"].includes(view) ? view : "import");
+  const jobId = state.activeJobId || restored("activeJob");
+  if (jobId) {
+    generating = true; workspaceBusy = true; setModelBusy(true); updateGenerate(); renderDraft(); $("demo").disabled = true;
+    showGeneration({ stage: "prepare", startedAt: Date.now() });
+    try {
+      const result = await waitGeneration(jobId); draft = result.draft; store("activeJob", ""); store("lastDraft", draft.id);
+      selected = draft.questions[0].id; await refreshState(); renderDraft(); showView("review");
+      if (restored("jobPracticeMode") === "direct") await startDirectPractice();
+    } catch (e) { store("activeJob", ""); showGeneration({ ...latestGeneration, stage: "failed", error: e.message + " 不会自动重新调用模型。" }); error("genErr", e.message + " 不会自动重新调用模型。"); }
+    finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); $("demo").disabled = false; updateGenerate(); renderDraft(); }
+  }
 }
 init().catch(e => error("actionErr", e.message));

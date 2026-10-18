@@ -60,8 +60,10 @@ test("用户 API：连接测试无课程、并发配置独立、密钥不进入�
     child.stderr.on("data", data => { logs += data; });
     child.once("error", err => { clearTimeout(timer); reject(err); });
   });
+  let cookie = "";
   const req = async (route, method = "GET", body, status = 200) => {
-    const res = await fetch(base + route, { method, headers: body === undefined ? {} : { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const res = await fetch(base + route, { method, headers: { Cookie: cookie, ...(body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    cookie = res.headers.get("set-cookie")?.split(";")[0] || cookie;
     const result = await res.json(); assert.equal(res.status, status, JSON.stringify(result)); return result;
   };
   const configA = { baseUrl: upstreamUrl + "/v1", model: "fixture-model-a", apiKey: "local-fixture-key-a", jsonMode: false };
@@ -88,7 +90,7 @@ test("用户 API：连接测试无课程、并发配置独立、密钥不进入�
   for (const q of draft.questions) ({ draft } = await req(`/api/drafts/${draft.id}/questions/${q.id}`, "PATCH", { revision: draft.revision, review: q.quoteFound ? "approved" : "rejected", evidenceConfirmed: q.quoteFound }));
   const { publication } = await req(`/api/drafts/${draft.id}/publish`, "POST", { revision: draft.revision });
   const exported = await req(`/api/publications/${publication.id}/export`);
-  const state = await req("/api/state"), persisted = await readFile(path.join(directory, "workspace.json"), "utf8");
+  const state = await req("/api/state"), persisted = await readFile(path.join(directory, "workspaces", cookie.split("=")[1], "workspace.json"), "utf8");
   assert.equal(state.model.configured, false);
   for (const key of [configA.apiKey, configB.apiKey, "local-fixture-rejected"]) {
     assert.ok(!JSON.stringify({ outputs, connection, exported, state }).includes(key));
