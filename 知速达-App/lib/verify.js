@@ -22,7 +22,7 @@ export function checkEvidence(item, source) {
   let status = "需人工核验";
   let note = item.note ?? "";
   if (found && claimed) status = "已核对";
-  else if (!found) note = `${note} 系统未在讲义中找到该引用，已降级。`.trim();
+  else if (!found && !note.includes("系统未在讲义中找到该引用")) note = `${note} 系统未在讲义中找到该引用，已降级。`.trim();
   return { ...item, status, quoteFound: found, note };
 }
 

@@ -3,10 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "知速达：基于课程资料溯源的 AI 智能复习包生成工具（初版框架）",
+  "description": "知速达：基于课程资料溯源的 AI 智能复习包生成工具（本地比赛演示版）",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test \"test/*.test.js\""
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.3",
+    "unpdf": "1.9.0"
+  }
 }

@@ -1,66 +1,85 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>知速达 · 教师工作台</title>
-<style>
-  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#e5e7eb; --pri:#1d4ed8; --ok:#166534; --okbg:#dcfce7; --warn:#92400e; --warnbg:#fef3c7; --bad:#991b1b; --badbg:#fee2e2; }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,"Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
-  main { max-width:880px; margin:0 auto; padding:16px; }
-  h1 { font-size:1.4rem; margin:8px 0 0; } h2 { font-size:1.1rem; }
-  .muted { color:var(--muted); font-size:.9rem; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin:12px 0; }
-  label { display:block; margin-top:10px; font-weight:600; }
-  input, textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
-  textarea { min-height:160px; }
-  button { padding:8px 16px; border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; font:inherit; }
-  button.primary { background:var(--pri); color:#fff; border-color:var(--pri); margin-top:12px; }
-  button[disabled] { opacity:.6; cursor:wait; }
-  button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid #93c5fd; outline-offset:2px; }
-  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.8rem; font-weight:600; }
-  .badge.ok { background:var(--okbg); color:var(--ok); } .badge.check { background:var(--warnbg); color:var(--warn); }
-  .evi { background:#f3f4f6; border-left:3px solid var(--pri); padding:6px 10px; margin:8px 0; font-size:.9rem; word-break:break-word; }
-  .err { background:var(--badbg); color:var(--bad); padding:8px 12px; border-radius:8px; margin-top:12px; }
-  .notice { background:var(--warnbg); color:var(--warn); padding:8px 12px; border-radius:8px; font-size:.9rem; }
-  .acts { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
-  .acts button[aria-pressed="true"] { background:var(--pri); color:#fff; border-color:var(--pri); }
-  table { width:100%; border-collapse:collapse; font-size:.9rem; } td, th { border:1px solid var(--line); padding:6px; text-align:left; vertical-align:top; }
-</style>
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>知速达 · 我的课程复习</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="teacher.css"></head>
 <body>
-<main>
-  <h1>知速达 · 教师工作台</h1>
-  <p class="muted">基于课程资料溯源的 AI 智能复习包生成工具（初版）</p>
-  <p class="notice">AI 生成的内容必须由教师逐题审核后再发给学生。使用讲义前请确认已取得任课教师授权。</p>
-
-  <section class="card" aria-labelledby="h-gen">
-    <h2 id="h-gen">1. 上传讲义，生成复习包</h2>
-    <label for="course">课程名称</label><input id="course" value="高级数据结构与算法分析">
-    <label for="topic">本讲主题</label><input id="topic" value="Lecture 1 AVL 树">
-    <label for="source">讲义文字（粘贴文本，至少 200 字）</label><textarea id="source"></textarea>
-    <button class="primary" id="gen">生成复习包</button>
-    <div id="genErr" class="err" role="alert" hidden></div>
-  </section>
-
-  <section id="result" hidden aria-live="polite">
-    <h2>2. 教师审核</h2>
-    <p id="sum" class="muted"></p>
-    <div id="items"></div>
-    <button class="primary" id="exp">导出审核结果（CSV）</button>
-    <textarea id="csv" readonly hidden aria-label="导出结果"></textarea>
-  </section>
-
-  <section class="card" aria-labelledby="h-fb">
-    <h2 id="h-fb">3. 汇总学生反馈</h2>
-    <label for="records">粘贴学生反馈数据（学生端“生成反馈数据”的输出，多人合并）</label>
-    <textarea id="records" placeholder="学生 | 档位 | 做错的题号 | 卡点描述"></textarea>
-    <button class="primary" id="fb">汇总共性问题</button>
-    <div id="fbErr" class="err" role="alert" hidden></div>
-    <div id="fbOut"></div>
-  </section>
+<a class="skip-link" href="#main">跳到主要内容</a>
+<header class="site-header">
+  <a class="brand" href="/"><span class="brand-symbol" aria-hidden="true">知</span><span>知速达<small>把复习，放回原文。</small></span></a>
+  <nav class="main-nav" aria-label="工作区"><button id="navImport" class="nav-button active" aria-current="page">导入资料</button><button id="navReview" class="nav-button">可选核对</button><button id="navLibrary" class="nav-button">我的复习包</button></nav>
+  <span class="local-tag"><i></i>本地工作区</span>
+</header>
+<main id="main" class="workspace">
+<div id="actionErr" class="err" role="alert" hidden></div>
+<section id="importView">
+  <div class="page-heading"><p class="eyebrow">从你自己的课程开始</p><h1>把课程笔记，变成自己的复习练习。</h1><p class="muted">上传资料，生成后直接练习；需要时，随题回看原文。</p></div>
+  <div class="import-layout">
+    <section class="surface import-card" aria-labelledby="importTitle">
+      <div class="section-title"><h2 id="importTitle">导入课程资料</h2><span class="step-label">第一步</span></div>
+      <div id="dropZone" class="drop-zone">
+        <span class="upload-symbol" aria-hidden="true">↥</span><h3>把课程笔记放在这里</h3><p>拖入文件，或选择本机文件</p>
+        <label class="button secondary upload-button">选择 DOCX / PDF<input id="fileInput" type="file" accept=".docx,.pdf" aria-label="选择 DOCX 或 PDF 文件"></label>
+        <p class="small muted">每份不超过 12 MB · 支持文字版 PDF · 在本机提取文字</p>
+      </div>
+      <p id="importStatus" class="small muted" role="status" aria-live="polite"></p>
+      <div class="paste-divider"><span>或者直接粘贴课程文字</span></div>
+      <label class="field"><span>课程文字 <span class="muted">（200—60000 字符）</span></span><textarea id="source" rows="7" maxlength="60000" placeholder="粘贴自己的笔记，或已获得授权的课程资料。上传文件后也可在此检查提取结果。"></textarea></label>
+      <div class="preview-meta"><span id="sourceCount" class="small muted">尚未导入资料</span><button id="togglePreview" class="text-button" hidden>按位置预览原文</button></div>
+      <div id="importWarnings" class="notice small" hidden></div>
+      <div id="importPreview" class="import-preview" hidden></div>
+      <p class="small muted">请先检查提取顺序和缺失内容。自行整理的笔记也可能有误，生成结果仍需核对。</p>
+    </section>
+    <aside class="import-settings">
+      <section class="surface settings-card"><div class="section-title"><h2>这次想复习什么？</h2><span class="step-label">第二步</span></div>
+        <label class="field"><span>课程名称</span><input id="course" maxlength="100" placeholder="例如：心理学导论"></label>
+        <label class="field"><span>本讲主题</span><input id="topic" maxlength="100" placeholder="例如：第一章 绪论"></label>
+        <label class="field"><span>复习目标</span><input id="goal" maxlength="200" value="合上资料后，能解释核心概念并区分易混点"></label>
+        <label class="field"><span>生成后怎么开始？</span><select id="practiceMode"><option value="direct">直接开始练习（推荐）</option><option value="reviewed">先核对题目，再开始练习</option></select></label>
+        <p class="small muted">优先生成 6 道分层题目；资料不足时减少数量。</p>
+        <button id="gen" class="button primary full">生成我的复习包 →</button>
+        <p class="small muted">人工核对可选。引用无法定位、字段不完整或已退回的题目不会进入直接练习；其余题目仍可能有误。</p>
+        <p id="modelStatus" class="small muted" role="status"></p><div id="genErr" class="err" role="alert" hidden></div>
+        <button id="openModel" class="button secondary full" aria-haspopup="dialog">设置自己的 API</button>
+        <p class="privacy-note small">谁生成，谁提供 API；打开已发布练习无需 API。生成时，预览文字会发送给你设置的模型服务或中转站，原文件不会发送。</p>
+      </section>
+      <section class="demo-card"><span class="eyebrow">先体验，再接入模型</span><h3>现在就做一次小练习</h3><p class="muted">用自编心理学材料，体验作答、原文依据和薄弱点回顾。</p><button id="demo" class="button secondary full">载入可演示样例</button><p class="small muted">无需密钥，不消耗模型额度；题目为固定预设，同样遵循上方的开始方式。</p></section>
+    </aside>
+  </div>
+</section>
+<section id="review" hidden>
+  <div class="review-top"><div><p class="eyebrow">可选核对 / 需要时再检查答案与原文</p><h1 id="draftMeta">我的题目草稿</h1><p id="draftMode" class="small muted"></p></div><label class="field draft-picker"><span>切换已保存的草稿</span><select id="draftSelect"><option value="">还没有草稿</option></select></label></div>
+  <div class="review-progress"><div><span id="reviewStat"></span><progress id="reviewProgress" max="6" value="0" aria-label="已处理题目"></progress></div><button id="exportReview" class="text-button">导出审核 CSV ↗</button></div>
+  <div class="mobile-tabs" role="group" aria-label="审核视图"><button id="tabQuestion" class="button secondary" aria-pressed="true">查看题目</button><button id="tabSource" class="button secondary" aria-pressed="false">查看原文</button></div>
+  <div id="reviewGrid" class="review-grid">
+    <aside class="question-index surface"><div class="index-title"><h2>题目列表</h2><span id="questionCount" class="muted small"></span></div><div id="questionList" class="question-list" role="group" aria-label="选择审核题目"></div></aside>
+    <section id="questionPane" class="question-pane surface" aria-label="当前题目"><div id="items"></div></section>
+    <aside id="sourcePane" class="source-pane surface" aria-label="课程原文"><div class="source-head"><span class="eyebrow">课程原文</span><h2 id="sourceName"></h2><p id="sourceLocation" class="small muted"></p></div><div id="sourcePreview" class="source-reader" tabindex="0" aria-label="可滚动的课程原文"></div><p class="source-foot small muted">高亮表示引用出现的位置；是否足以支持答案，仍需你判断。</p></aside>
+  </div>
+  <div class="publish-bar"><div><strong>随时开始练习，人工核对可选。</strong><p id="publishHint" class="small muted"></p></div><div class="actions"><a id="studentLink" class="button secondary" target="_blank" rel="noopener" hidden>打开练习 ↗</a><button id="publish" class="button secondary" disabled>保存已核对的复习包</button><button id="practiceNow" class="button primary">直接开始练习 →</button></div></div>
+</section>
+<section id="emptyReview" class="empty-state surface" hidden><p class="eyebrow">可选核对</p><h1>先导入一份课程资料。</h1><p class="muted">生成后可以直接练习，也可以在这里检查题目和原文。</p><button id="emptyImport" class="button primary">去导入资料</button></section>
+<section id="libraryView" hidden>
+  <div class="page-heading"><p class="eyebrow">从练习回到学习</p><h1>我的复习包与学习记录</h1><p class="muted">继续练习，看看哪些知识点还需要回顾。</p></div>
+  <div class="library-layout"><section class="surface library-card"><h2>已保存的复习包</h2><p id="noPublications" class="muted">还没有复习包。导入资料并生成，或先体验固定样例。</p><ul id="publicationList" class="publication-list"></ul></section>
+  <section id="report" class="surface report-card" hidden><div class="section-title"><div><p class="eyebrow">反馈概览</p><h2 id="reportTitle"></h2></div><button id="refreshReport" class="button secondary">刷新</button></div><p id="reportStat" class="report-stat"></p><p id="reportNote" class="small muted"></p><ul id="reportList" class="report-list"></ul><div id="reportComments"></div></section></div>
+</section>
 </main>
-<script src="app.js"></script>
-</body>
-</html>
+<dialog id="modelDialog" class="model-dialog" aria-labelledby="modelTitle" aria-describedby="modelIntro">
+  <div class="section-title"><div><p class="eyebrow">你的模型，你来选择</p><h2 id="modelTitle">模型设置</h2></div><button id="closeModel" class="text-button" type="button">关闭</button></div>
+  <p id="modelIntro" class="muted small">支持兼容对话接口的官方服务和中转站。费用由你填写的账号承担，知速达不收取模型调用费。</p>
+  <form id="modelForm" autocomplete="off" novalidate>
+    <fieldset id="modelFields">
+      <label class="field"><span>接口地址（Base URL）</span><input id="modelBaseUrl" type="url" inputmode="url" maxlength="2048" autocomplete="off" spellcheck="false" placeholder="https://你的服务地址/v1" required aria-describedby="modelUrlHint"></label>
+      <p id="modelUrlHint" class="small muted field-hint">填写服务商给出的兼容地址；也支持以 /chat/completions 结尾的完整地址。外部服务需使用 HTTPS。</p>
+      <label class="field"><span>模型名称</span><input id="modelName" maxlength="200" autocomplete="off" spellcheck="false" placeholder="复制服务商提供的模型 ID" required></label>
+      <label class="field"><span>API 密钥</span><span class="key-field"><input id="modelApiKey" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="只在当前页面使用" required><button id="toggleModelKey" class="text-button" type="button" aria-pressed="false" aria-label="显示 API 密钥">显示</button></span></label>
+      <label class="model-check"><input id="modelJsonMode" type="checkbox" checked><span>请求 JSON 对象响应<span class="small muted">默认开启；接口提示不支持此参数时，可取消勾选。</span></span></label>
+    </fieldset>
+    <div class="model-privacy small"><strong>刷新即清除</strong><p>密钥只保留在当前页面内存，经本机服务临时转发到你填写的地址，不写入课程记录、导出文件或日志。使用中转站时，密钥和生成材料会经过该站点，请选择可信服务。</p></div>
+    <p id="modelTestStatus" class="small good-text" role="status" aria-live="polite"></p><div id="modelErr" class="err small" role="alert" hidden></div>
+    <div class="model-actions"><button id="applyModel" type="submit" class="button primary">在本页使用</button><button id="testModel" type="button" class="button secondary">测试连接并使用</button></div>
+    <p class="small muted model-test-note">“在本页使用”只启用配置，不发请求。连接测试发送一条简短指令，不含课程资料，可能产生少量模型费用；最多等待 25 秒。</p>
+    <button id="clearModel" type="button" class="text-button" hidden>清除本页 API 配置</button>
+  </form>
+</dialog>
+<footer>知速达 · 导入自己的资料 / 主动回忆练习 / 随题回看原文</footer>
+<script type="module" src="app.js"></script></body></html>
