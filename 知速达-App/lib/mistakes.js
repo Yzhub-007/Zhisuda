@@ -17,3 +17,15 @@ export function mistakeBook(data) {
   }
   return [...rows.values()].reverse();
 }
+
+// 练习历史：每次提交一行，得分只统计客观题，简答题单独列自评，不合成“总分”。
+export function attemptHistory(data) {
+  return [...data.attempts].reverse().map(attempt => {
+    const pack = data.publications.find(p => p.id === attempt.packId);
+    const objective = attempt.results.filter(r => r.type === "选择");
+    const written = attempt.results.filter(r => r.type === "简答");
+    return { id: attempt.id, packId: attempt.packId, topic: pack?.topic || "复习包", course: pack?.course || "", createdAt: attempt.createdAt,
+      total: attempt.results.length, objectiveTotal: objective.length, objectiveCorrect: objective.filter(r => r.correct).length,
+      writtenTotal: written.length, writtenAssessed: written.filter(r => r.selfAssessment).length };
+  });
+}

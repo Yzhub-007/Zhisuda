@@ -7,11 +7,11 @@ import { chatJson, llmConfig } from "./lib/llm.js";
 import { summarize } from "./lib/verify.js";
 import { GENERATE_SYSTEM, FEEDBACK_SYSTEM, generateUser } from "./lib/prompts.js";
 import { createDraft, feedbackReport, publishDraft, saveAssessments, saveFeedback, studentPack, submitAttempt, updateQuestion } from "./lib/workflow.js";
-import { mistakeBook } from "./lib/mistakes.js";
+import { mistakeBook, attemptHistory } from "./lib/mistakes.js";
 import { demoInput } from "./lib/demo.js";
 import { createStore } from "./lib/store.js";
 import { createModelVault, localSaveSupported, resolveModelConfig } from "./lib/model-vault.js";
-import { importDocument, validateDocument, MAX_FILE } from "./lib/sources.js";
+import { importDocument, validateDocument, scopeDocument, MAX_FILE } from "./lib/sources.js";
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const MAX_BODY = 900_000; // 含提取文字和位置数据；中文 UTF-8 通常每字3字节
@@ -135,6 +135,8 @@ async function handle(req, res) {
 
   if (req.method === "GET" && url.pathname === "/api/mistakes") return send(res, 200, { mistakes: mistakeBook(await store.read()) });
 
+  if (req.method === "GET" && url.pathname === "/api/history") return send(res, 200, { history: attemptHistory(await store.read()) });
+
   if (req.method === "GET" && /^\/api\/attempts\/[^/]+$/.test(url.pathname)) {
     const attempt = (await store.read()).attempts.find(a => a.id === pathPart(url, 3));
     return attempt ? send(res, 200, { attempt }) : send(res, 404, { error: "练习记录不存在。" });
@@ -192,9 +194,24 @@ async function handle(req, res) {
     if (typeof b.source === "string" && b.source.length > MAX_SOURCE) return send(res, 413, { error: "单次材料不超过60000字符，请按讲次拆分。" });
     const source = str(b.source, MAX_SOURCE);
     if (source.length < 200) return send(res, 400, { error: "讲义内容太短，请粘贴至少 200 字的讲义文字。" });
-    const sourceDocument = validateDocument(b.sourceDocument, source);
+    const fullDocument = validateDocument(b.sourceDocument, source);
+    let sourceDocument = fullDocument;
+    if (b.blockIds !== undefined) {
+      if (!b.sourceDocument) return send(res, 400, { error: "按章节选择范围需要先导入 DOCX 或 PDF 文件。" });
+      sourceDocument = scopeDocument(fullDocument, b.blockIds);
+      if (sourceDocument.text.length < 200) return send(res, 400, { error: "所选范围不足 200 字，请多选几个章节或页面。" });
+    }
     const questionCount = b.questionCount === undefined ? 6 : b.questionCount;
     if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 30) return send(res, 400, { error: "题数需要是 1—30 的整数。" });
+    // 题型、难度组合：只接受已知取值的非空子集；不传表示不限制。
+    const pick = (value, allowed, label) => {
+      if (value === undefined) return undefined;
+      if (!Array.isArray(value) || !value.length || value.some(v => !allowed.includes(v))) throw Object.assign(new Error(`${label}选择无效，请至少选择一项。`), { status: 400 });
+      return allowed.filter(v => value.includes(v));
+    };
+    let questionTypes, levels;
+    try { questionTypes = pick(b.questionTypes, ["选择", "简答"], "题型"); levels = pick(b.levels, ["基础", "标准", "拓展"], "难度"); }
+    catch (e) { return send(res, 400, { error: e.message }); }
     const active = [...jobs.values()].find(j => j.owner === token && !["done", "failed"].includes(j.stage));
     if (active) return send(res, 409, { error: "已有生成任务，请先等待它完成。", jobId: active.id });
     const started = Date.now();
@@ -206,13 +223,18 @@ async function handle(req, res) {
       goal: str(b.goal, 100) || "期末复习",
       source: sourceDocument.text,
       sourceDocument,
-      questionCount,
+      questionCount, questionTypes, levels,
     }), cfg);
     if (job) job.stage = "validate";
     // 模型多返回时不超过所选题数；少返回时不复制或编造题目补齐。
-    if (Array.isArray(raw.questions)) raw.questions = raw.questions.slice(0, questionCount);
+    // 模型不遵守题型／难度限制时，在服务端过滤掉，不让越界题目进入复习包。
+    if (Array.isArray(raw.questions)) {
+      const before = raw.questions.length;
+      raw.questions = raw.questions.filter(q => (!questionTypes || questionTypes.includes(q?.type)) && (!levels || levels.includes(q?.level))).slice(0, questionCount);
+      raw._offLimit = Math.max(0, before - raw.questions.length);
+    }
     const draft = createDraft({ course: b.course, topic: b.topic, goal: b.goal, source: sourceDocument.text, sourceDocument }, raw, cfg.mock ? "mock" : "live");
-    draft.generation = { requestedCount: questionCount, elapsedMs: Date.now() - started, model: cfg.mock ? "固定模拟数据" : cfg.model, usage: raw._usage || null };
+    draft.generation = { requestedCount: questionCount, questionTypes: questionTypes || null, levels: levels || null, scope: b.blockIds === undefined ? null : { selected: sourceDocument.blocks.length, total: fullDocument.blocks.length }, elapsedMs: Date.now() - started, model: cfg.mock ? "固定模拟数据" : cfg.model, usage: raw._usage || null };
     if (job) job.stage = "save";
     await store.update(data => { data.drafts.push(draft); });
     return draft;

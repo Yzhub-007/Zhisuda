@@ -48,7 +48,14 @@ async function refreshState() {
   }));
   updateGenerate(); return state;
 }
-function updateGenerate() { $("gen").disabled = generating || importBusy || value("source").length < 200; }
+function scopeChars() { return sourceDocument ? sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0) : value("source").length; }
+const checked = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(i => i.value);
+// 全选等同不限制，不向服务端发送，保持旧行为。
+function mixPayload() {
+  const types = checked("qtype"), levels = checked("qlevel");
+  return { ...(types.length < 2 ? { questionTypes: types } : {}), ...(levels.length < 3 ? { levels } : {}) };
+}
+function updateGenerate() { $("gen").disabled = generating || !checked("qtype").length || !checked("qlevel").length || importBusy || value("source").length < 200 || scopeChars() < 200; }
 function previewImport() {
   const count = value("source").length;
   $("sourceCount").textContent = sourceDocument ? sourceDocument.name + " · " + count.toLocaleString() + " 字符 · " + sourceDocument.blocks.length + (sourceDocument.kind === "pdf" ? " 个有文字的页面" : " 个非空段落") : count ? count.toLocaleString() + " 字符 · 按粘贴文字定位" : "尚未导入资料";
@@ -61,9 +68,38 @@ function previewImport() {
   if (!sourceDocument) $("importPreview").hidden = true;
   updateGenerate();
 }
+// 章节／页面选择：DOCX 按标题分组，PDF 每页一组；粘贴文字没有可靠结构，不提供。
+let scope = new Set(), scopeGroups = [];
+function groupBlocks(doc) {
+  if (doc.kind === "pdf") return doc.blocks.map(b => ({ name: b.label, ids: [b.id], chars: b.text.length }));
+  const groups = [];
+  for (const b of doc.blocks) {
+    const name = b.label.replace(/ · 第 \d+ 段$/, "") || "正文", last = groups.at(-1);
+    if (last && last.name === name) { last.ids.push(b.id); last.chars += b.text.length; } else groups.push({ name, ids: [b.id], chars: b.text.length });
+  }
+  return groups;
+}
+function scopeBlockIds() { return sourceDocument && scopeGroups.length > 1 && scope.size < sourceDocument.blocks.length ? [...scope] : undefined; }
+function renderScope() {
+  const show = Boolean(sourceDocument) && scopeGroups.length > 1;
+  $("scopeBox").hidden = !show; if (!show) return;
+  $("scopeHint").textContent = sourceDocument.kind === "pdf" ? "按 PDF 页面选择；只有选中的页面会发送给模型，也只会从这些页面出题。" : "按文档标题选择；只有选中的章节会发送给模型，也只会从这些章节出题。";
+  $("scopeList").replaceChildren(...scopeGroups.map(g => {
+    const label = mk("label", "", "scope-item"), box = document.createElement("input");
+    box.type = "checkbox"; box.checked = g.ids.every(id => scope.has(id));
+    box.onchange = () => { g.ids.forEach(id => box.checked ? scope.add(id) : scope.delete(id)); renderScope(); updateGenerate(); };
+    const text = mk("span", g.name); text.append(mk("small", `${g.chars.toLocaleString()} 字符`)); label.append(box, text); return label;
+  }));
+  const chars = sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0);
+  $("scopeSummary").textContent = `已选 ${scope.size} / ${sourceDocument.blocks.length} 个${sourceDocument.kind === "pdf" ? "页面" : "段落"} · ${chars.toLocaleString()} 字符` + (chars < 200 ? "（不足 200 字，请多选）" : "");
+}
+function resetScope() { scopeGroups = sourceDocument ? groupBlocks(sourceDocument) : []; scope = new Set(sourceDocument?.blocks.map(b => b.id) || []); renderScope(); }
+document.querySelectorAll("input[name=qtype],input[name=qlevel]").forEach(i => i.addEventListener("change", updateGenerate));
+$("scopeAll").onclick = () => { scope = new Set(sourceDocument.blocks.map(b => b.id)); renderScope(); updateGenerate(); };
+$("scopeNone").onclick = () => { scope = new Set(); renderScope(); updateGenerate(); };
 $("source").oninput = () => {
   if (sourceDocument && value("source") !== sourceDocument.text) {
-    sourceDocument = null; $("importStatus").textContent = "你已修改提取文字，来源改为粘贴文字定位；重新上传文件可以恢复文件位置。";
+    sourceDocument = null; resetScope(); $("importStatus").textContent = "你已修改提取文字，来源改为粘贴文字定位；重新上传文件可以恢复文件位置。";
   }
   previewImport();
 };
@@ -77,7 +113,7 @@ async function importFile(file) {
   try {
     const res = await fetch("/api/import?name=" + encodeURIComponent(file.name), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
     const data = await res.json(); if (!res.ok) throw new Error(data.error || "导入失败，请重试。");
-    sourceDocument = data.document; $("source").value = sourceDocument.text; $("importPreview").hidden = false; $("togglePreview").textContent = "收起位置预览";
+    sourceDocument = data.document; resetScope(); $("source").value = sourceDocument.text; $("importPreview").hidden = false; $("togglePreview").textContent = "收起位置预览";
     if (!value("topic")) $("topic").value = file.name.replace(/\.(docx|pdf)$/i, "");
     $("importStatus").textContent = "提取完成，尚未发送到模型。请检查下方文字及位置预览。";
     previewImport();
@@ -235,7 +271,7 @@ async function create(kind) {
   const button = kind === "demo" ? $("demo") : $("gen"), label = button.textContent; button.textContent = kind === "demo" ? "正在载入…" : "生成中，请稍候（最多 120 秒）…";
   try {
     const modelConfig = getModelConfig();
-    const payload = kind === "demo" ? {} : { questionCount, course: value("course"), topic: value("topic"), goal: value("goal"), source: value("source"), ...(sourceDocument ? { sourceDocument } : {}), ...(modelConfig ? { modelConfig } : {}) };
+    const payload = kind === "demo" ? {} : { questionCount, course: value("course"), topic: value("topic"), goal: value("goal"), source: value("source"), ...(sourceDocument ? { sourceDocument } : {}), ...(scopeBlockIds() ? { blockIds: scopeBlockIds() } : {}), ...mixPayload(), ...(modelConfig ? { modelConfig } : {}) };
     let result;
     if (kind === "demo") result = await api("/api/demo", "POST", payload);
     else {

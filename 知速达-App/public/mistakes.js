@@ -5,6 +5,13 @@ function render() {
   const shown = mistakes.filter(r => filter === "all" || (filter === "mastered" ? r.state === "掌握" : r.state !== "掌握"));
   $("count").textContent = `待巩固 ${mistakes.filter(r => r.state !== "掌握").length} 题 · 已掌握 ${mistakes.filter(r => r.state === "掌握").length} 题 · 当前显示 ${shown.length} 题`;
   $("empty").hidden = shown.length > 0;
+  // 按复习包汇总待巩固题，提供“整组重练”入口。
+  const pending = new Map();
+  mistakes.filter(r => r.state !== "掌握").forEach(r => { const e = pending.get(r.packId) || { topic: r.topic, course: r.course, ids: [] }; e.ids.push(r.questionId); pending.set(r.packId, e); });
+  $("retryAll").replaceChildren(...[...pending].map(([packId, e]) => {
+    const a = mk("a", `重练「${e.topic}」全部 ${e.ids.length} 道待巩固题 →`, "button primary");
+    a.href = "/student.html?pack=" + encodeURIComponent(packId) + "&question=" + encodeURIComponent(e.ids.join(",")); return a;
+  }));
   $("mistakeList").replaceChildren(...shown.map(r => {
     const card = mk("article", "", "question-card" + (r.state === "掌握" ? "" : " is-wrong"));
     card.append(mk("p", `${r.course} / ${r.topic} / ${r.knowledgeName}`, "eyebrow"), mk("h2", r.question),

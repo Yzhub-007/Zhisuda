@@ -36,6 +36,16 @@ export function validateDocument(input, source) {
   return doc;
 }
 
+// 只保留学生选中的章节／页面：按原顺序截取，位置标签沿用原文件，不重新编号。
+export function scopeDocument(document, blockIds) {
+  if (!Array.isArray(blockIds) || !blockIds.length || blockIds.length > 4000 || blockIds.some(id => typeof id !== "string")) throw fail("请至少选择一个章节或页面作为复习范围。", 400);
+  const wanted = new Set(blockIds), known = new Set(document.blocks.map(b => b.id));
+  if ([...wanted].some(id => !known.has(id))) throw fail("所选范围与当前资料不一致，请重新选择。", 400);
+  const blocks = document.blocks.filter(b => wanted.has(b.id)).map(({ text, label, page }) => ({ text, label, ...(page ? { page } : {}) }));
+  const note = `本次只使用你选择的 ${blocks.length} / ${document.blocks.length} 个${document.kind === "pdf" ? "页面" : "段落"}，其余内容未发送给模型。`;
+  return makeDocument(document.name, document.kind, blocks, [...document.warnings, note]);
+}
+
 function findNodes(nodes, key) {
   const result = [];
   for (const node of nodes || []) for (const [tag, children] of Object.entries(node)) {

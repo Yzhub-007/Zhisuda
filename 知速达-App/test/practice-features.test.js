@@ -50,6 +50,11 @@ test("练习：工作区隔离、幂等提交、错题收录与重做掌握", as
   const { attempt } = await first(`/api/publications/${pack.id}/attempts`, "POST", { questionIds: [written.id], answers: { [written.id]: "我的自测回答" }, submissionId: randomUUID() });
   await first(`/api/attempts/${attempt.id}/assessments`, "PATCH", { assessments: { [written.id]: "部分掌握" } });
   assert.equal((await first("/api/mistakes")).mistakes.find(m => m.questionId === written.id).state, "部分掌握");
+
+  const { history } = await first("/api/history"), other = await second("/api/history");
+  assert.equal(history.length, 3); assert.equal(other.history.length, 0);
+  assert.equal(history[0].writtenTotal, 1); assert.equal(history[0].writtenAssessed, 1);
+  assert.equal(history[1].objectiveCorrect, 1); assert.equal(history[2].objectiveCorrect, 0);
 });
 
 test("生成任务：校验自选题数并返回真实阶段与题数", async t => {
@@ -65,4 +70,40 @@ test("生成任务：校验自选题数并返回真实阶段与题数", async t 
   assert.equal(job.stage, "done");
   const { draft } = await req("/api/drafts/" + job.draftId);
   assert.equal(draft.questions.length, 1); assert.equal(draft.generation.requestedCount, 1);
+});
+
+test("范围选择：只使用所选章节，未选内容不进入草稿，非法范围被拒绝", async t => {
+  const service = await start(); t.after(() => service.close()); const req = client(service.url);
+  const part = (name, n) => `${name}的核心概念是${"记忆需要反复提取并结合例子理解，".repeat(n)}`;
+  const blocks = [part("第一章", 8), part("第二章", 8), part("第三章", 8)].map((text, i) => ({ text, label: `第 ${i + 1} 段` }));
+  const source = blocks.map(b => b.text).join("\n\n"), sourceDocument = { name: "讲义", kind: "text", blocks };
+  const base = { source, sourceDocument, course: "测试课", questionCount: 1 };
+  const finish = async payload => {
+    const { jobId } = await req("/api/generation-jobs", "POST", payload, 202); let job;
+    for (let i = 0; i < 50; i++) { ({ job } = await req("/api/generation-jobs/" + jobId)); if (["done", "failed"].includes(job.stage)) break; await new Promise(r => setTimeout(r, 20)); }
+    return job;
+  };
+  await req("/api/generation-jobs", "POST", { ...base, blockIds: [] }, 400);
+  await req("/api/generation-jobs", "POST", { ...base, blockIds: ["b99"] }, 400);
+  await req("/api/generation-jobs", "POST", { source, questionCount: 1, blockIds: ["b1"] }, 400);
+  const job = await finish({ ...base, blockIds: ["b2", "b3"] });
+  if (job.stage === "failed") assert.fail(job.error);
+  const { draft } = await req("/api/drafts/" + job.draftId);
+  assert.deepEqual(draft.sourceDocument.blocks.map(b => b.label), ["第 2 段", "第 3 段"]);
+  assert.ok(!draft.source.includes("第一章")); assert.deepEqual(draft.generation.scope, { selected: 2, total: 3 });
+});
+
+test("题型与难度组合：只生成所选组合，非法取值被拒绝", async t => {
+  const service = await start(); t.after(() => service.close()); const req = client(service.url), input = demoInput();
+  const base = { source: input.source, course: input.course, questionCount: 5 };
+  await req("/api/generation-jobs", "POST", { ...base, questionTypes: [] }, 400);
+  await req("/api/generation-jobs", "POST", { ...base, questionTypes: ["判断"] }, 400);
+  await req("/api/generation-jobs", "POST", { ...base, levels: "基础" }, 400);
+  const { jobId } = await req("/api/generation-jobs", "POST", { ...base, questionTypes: ["选择"], levels: ["基础", "标准"] }, 202); let job;
+  for (let i = 0; i < 50; i++) { ({ job } = await req("/api/generation-jobs/" + jobId)); if (["done", "failed"].includes(job.stage)) break; await new Promise(r => setTimeout(r, 20)); }
+  assert.equal(job.stage, "done", job.error);
+  const { draft } = await req("/api/drafts/" + job.draftId);
+  assert.ok(draft.questions.length >= 1);
+  assert.ok(draft.questions.every(q => q.type === "选择" && ["基础", "标准"].includes(q.level)));
+  assert.deepEqual(draft.generation.questionTypes, ["选择"]);
 });

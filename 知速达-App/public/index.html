@@ -27,6 +27,7 @@
       <div class="preview-meta"><span id="sourceCount" class="small muted">尚未导入资料</span><button id="togglePreview" class="text-button" hidden>按位置预览原文</button></div>
       <div id="importWarnings" class="notice small" hidden></div>
       <div id="importPreview" class="import-preview" hidden></div>
+      <fieldset id="scopeBox" class="scope-box" hidden><legend>这次复习哪些部分？</legend><p id="scopeHint" class="small muted"></p><div class="actions"><button type="button" id="scopeAll" class="text-button">全选</button><button type="button" id="scopeNone" class="text-button">清空</button></div><div id="scopeList" class="scope-list"></div><p id="scopeSummary" class="small good-text" role="status" aria-live="polite"></p></fieldset>
       <p class="small muted">请先检查提取顺序和缺失内容。自行整理的笔记也可能有误，生成结果仍需核对。</p>
     </section>
     <aside class="import-settings">
@@ -35,6 +36,8 @@
         <label class="field"><span>本讲主题</span><input id="topic" maxlength="100" placeholder="例如：第一章 绪论"></label>
         <label class="field"><span>复习目标</span><input id="goal" maxlength="200" value="合上资料后，能解释核心概念并区分易混点"></label>
         <label class="field"><span>希望生成多少道题？</span><input id="requestedQuestions" type="number" min="1" max="30" step="1" value="6" aria-describedby="countHint"></label>
+        <fieldset class="scope-box"><legend>题型</legend><label class="scope-item"><input type="checkbox" name="qtype" value="选择" checked>选择题</label><label class="scope-item"><input type="checkbox" name="qtype" value="简答" checked>简答题（学生自评）</label></fieldset>
+        <fieldset class="scope-box"><legend>难度</legend><label class="scope-item"><input type="checkbox" name="qlevel" value="基础" checked>基础</label><label class="scope-item"><input type="checkbox" name="qlevel" value="标准" checked>标准</label><label class="scope-item"><input type="checkbox" name="qlevel" value="拓展" checked>拓展</label></fieldset>
         <label class="field"><span>生成后怎么开始？</span><select id="practiceMode"><option value="direct">直接开始练习（推荐）</option><option value="reviewed">先核对题目，再开始练习</option></select></label>
         <p id="countHint" class="small muted">可选 1—30 道。题越多等待越久；材料不足或引用检查未通过时，可练题数会减少，完成后会说明。</p>
         <button id="gen" class="button primary full">生成我的复习包 →</button>
@@ -61,7 +64,7 @@
 <section id="emptyReview" class="empty-state surface" hidden><p class="eyebrow">可选核对</p><h1>先导入一份课程资料。</h1><p class="muted">生成后可以直接练习，也可以在这里检查题目和原文。</p><button id="emptyImport" class="button primary">去导入资料</button></section>
 <section id="libraryView" hidden>
   <div class="page-heading"><p class="eyebrow">从练习回到学习</p><h1>我的复习包与学习记录</h1><p class="muted">继续练习，看看哪些知识点还需要回顾。</p></div>
-  <div class="actions"><a class="button primary" href="/mistakes.html">打开我的错题本 →</a></div>
+  <div class="actions"><a class="button primary" href="/mistakes.html">打开我的错题本 →</a><a class="button secondary" href="/history.html">练习历史</a></div>
   <section class="storage-guide surface" aria-labelledby="storageTitle"><div><p class="eyebrow">自动保存，随时回来</p><h2 id="storageTitle">平时直接打开就能继续，无需每次导入。</h2><p>复习包、已提交成绩和错题保存在这台电脑；没做完的答案自动暂存在当前浏览器。关闭网页后，用<strong>同一浏览器、同一地址</strong>打开知速达，再点对应复习包即可继续。</p><p class="small muted">关掉知速达服务后需先重新启动。请勿清除站点数据或使用无痕模式；当前没有账号和云同步，换浏览器不会自动找回原工作区。记录不会自动上传 GitHub。</p></div>
     <details class="backup-details"><summary>换电脑、换浏览器或防丢失？先备份，再恢复</summary><p>① 点击“备份全部学习记录”，把下载的 JSON 文件放到自己找得到的位置。② 换环境后在这里选择该文件恢复。平时使用不需要这两步。</p><button id="backupWorkspace" class="button secondary">备份全部学习记录 ↓</button><p class="small muted">包含课程文字、复习包、已提交成绩、错题依据和本浏览器暂存的答案；不包含 API 密钥。文件含私人学习资料，请自行保管。</p><label class="field"><span>从备份恢复学习记录（JSON）</span><input id="legacyFile" type="file" accept=".json"></label><p class="small muted">也支持旧版 data 文件夹中的 workspace.json。恢复会合并记录，保留已有内容；“仅导出题目”的 JSON 不能用于恢复。</p><p id="legacyStatus" role="status"></p></details>
   </section>

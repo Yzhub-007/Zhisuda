@@ -1,17 +1,21 @@
 import { $, api, error, mk } from "./shared.js";
 import { readSession, writeSession } from "./practice-storage.js";
+import { matchesFilters } from "./filters.js";
 
-const params = new URLSearchParams(location.search), id = params.get("pack"), only = params.get("question");
+const params = new URLSearchParams(location.search), id = params.get("pack"), onlyParam = params.get("question"), onlyIds = onlyParam ? new Set(onlyParam.split(",").filter(Boolean)) : null, only = onlyIds ? onlyParam : null;
 const storageId = only ? id + ":only:" + only : id;
-let pack, attempt, level = "全部", ready = false, storageFailed = false;
+let pack, attempt, level = "全部", qtype = "全部", knowledge = "全部", ready = false, storageFailed = false;
 let submissionId = crypto.randomUUID(), assessmentWrites = Promise.resolve();
 let answers = {}, assessments = {};
-const visibleQuestions = () => pack.questions.filter(q => (!only || q.id === only) && (level === "全部" || q.level === level));
+const inScope = q => !onlyIds || onlyIds.has(q.id);
+// 难度、题型、知识点三组筛选取交集；统计某一组的数量时，应用另外两组的当前选择。
+const matches = (q, skip) => inScope(q) && matchesFilters(q, { level, type: qtype, knowledge }, skip);
+const visibleQuestions = () => pack.questions.filter(q => matches(q));
 
 function save() {
   if (!ready) return;
   try {
-    writeSession(storageId, { answers, assessments, level, attemptId: attempt?.id || null, submissionId,
+    writeSession(storageId, { answers, assessments, level, qtype, knowledge, attemptId: attempt?.id || null, submissionId,
       nickname: $("nickname").value, difficulty: $("difficulty").value, stuck: $("stuck").value, scroll: window.scrollY });
     storageFailed = false;
     $("saveStatus").textContent = "已自动保存到当前浏览器 · 可暂时退出后继续";
@@ -24,20 +28,29 @@ function save() {
 }
 function updateCount() {
   const shown = visibleQuestions(), answered = shown.filter(q => String(answers[q.id] || "").trim()).length;
-  $("visibleCount").textContent = `当前显示 ${shown.length} / 整包 ${pack.questions.length} 题 · 已答 ${answered} / ${shown.length}` + (only ? " · 仅重练这道错题" : "");
+  $("visibleCount").textContent = `当前显示 ${shown.length} / 整包 ${pack.questions.length} 题 · 已答 ${answered} / ${shown.length}` + (only ? (onlyIds?.size > 1 ? ` · 仅重练 ${onlyIds.size} 道待巩固题` : " · 仅重练这道错题") : "");
   $("answerProgress").max = shown.length; $("answerProgress").value = answered;
   $("submit").textContent = `提交当前 ${shown.length} 道题，查看答案与依据 →`;
 }
 function renderLevels() {
-  const levels = ["全部", ...new Set(pack.questions.filter(q => !only || q.id === only).map(q => q.level))];
-  if (!levels.includes(level)) level = "全部";
-  $("levels").replaceChildren(...levels.map(item => {
-    const count = pack.questions.filter(q => (!only || q.id === only) && (item === "全部" || q.level === item)).length;
-    const button = mk("button", `${item} · ${count}`, `button ${item === level ? "primary" : "secondary"}`);
-    button.setAttribute("aria-pressed", String(item === level));
-    button.onclick = () => { level = item; error("error"); renderLevels(); renderQuestions(); save(); };
-    return button;
-  }));
+  const groups = [
+    ["levels", "level", "难度", () => level, v => { level = v; }, q => q.level],
+    ["types", "type", "题型", () => qtype, v => { qtype = v; }, q => q.type],
+    ["knowledgeFilter", "knowledge", "知识点", () => knowledge, v => { knowledge = v; }, q => q.knowledgeName],
+  ];
+  for (const [id, skip, , get, set, field] of groups) {
+    const options = ["全部", ...new Set(pack.questions.filter(inScope).map(field))];
+    if (!options.includes(get())) set("全部");
+    $(id).replaceChildren(...options.map(item => {
+      const count = pack.questions.filter(q => matches(q, skip) && (item === "全部" || field(q) === item)).length;
+      const button = mk("button", `${item} · ${count}`, `button ${item === get() ? "primary" : "secondary"}`);
+      button.setAttribute("aria-pressed", String(item === get())); button.disabled = item !== get() && count === 0;
+      button.onclick = () => { set(item); error("error"); renderLevels(); renderQuestions(); save(); };
+      return button;
+    }));
+  }
+  const active = [level, qtype, knowledge].some(v => v !== "全部");
+  $("clearFilters").hidden = !active;
 }
 function renderQuestions() {
   $("questions").replaceChildren(...visibleQuestions().map(q => {
@@ -133,6 +146,7 @@ $("again").onclick = () => {
   $("difficulty").value = ""; $("stuck").value = ""; $("feedbackStatus").textContent = "";
   $("after").hidden = true; $("practice").hidden = false; renderLevels(); renderQuestions(); save(); window.scrollTo(0, 0);
 };
+$("clearFilters").onclick = () => { level = qtype = knowledge = "全部"; renderLevels(); renderQuestions(); save(); };
 ["nickname", "difficulty", "stuck"].forEach(name => $(name).addEventListener("input", save));
 window.addEventListener("pagehide", save);
 document.addEventListener("visibilitychange", () => { if (document.hidden) save(); });
@@ -141,7 +155,7 @@ window.addEventListener("beforeunload", event => { if (storageFailed) { event.pr
 async function init() {
   if (!id) throw new Error("请从“我的复习包”打开练习。");
   pack = (await api(`/api/publications/${encodeURIComponent(id)}/student`)).pack;
-  if (only && !pack.questions.some(q => q.id === only)) throw new Error("该题不在当前复习包中。");
+  if (onlyIds && ![...onlyIds].some(qid => pack.questions.some(q => q.id === qid))) throw new Error("这些题不在当前复习包中。");
   $("title").textContent = pack.topic; $("subtitle").textContent = `${pack.course} · ${pack.questions.length} 道可练题目 · ${pack.goal}`;
   $("reviewNotice").textContent = (pack.requestedCount ? `本次请求 ${pack.requestedCount} 题，模型返回 ${pack.generatedCount} 题，可练 ${pack.questions.length} 题。` : "") +
     (pack.excludedCount ? ` 已排除 ${pack.excludedCount} 道引用无法定位、字段不完整或已退回的题目。` : "") +
@@ -152,7 +166,7 @@ async function init() {
   if (saved) {
     const known = new Set(pack.questions.map(q => q.id));
     answers = Object.fromEntries(Object.entries(saved.answers || {}).filter(([key]) => known.has(key)));
-    assessments = saved.assessments || {}; level = saved.level || "全部"; submissionId = saved.submissionId || submissionId;
+    assessments = saved.assessments || {}; level = saved.level || "全部"; qtype = saved.qtype || "全部"; knowledge = saved.knowledge || "全部"; submissionId = saved.submissionId || submissionId;
     $("nickname").value = saved.nickname || ""; $("difficulty").value = saved.difficulty || ""; $("stuck").value = saved.stuck || "";
     if (saved.attemptId) {
       attempt = (await api("/api/attempts/" + encodeURIComponent(saved.attemptId))).attempt;

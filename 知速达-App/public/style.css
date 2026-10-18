@@ -4,3 +4,4 @@
 textarea{font-size:17px}input:not([type=radio]):not([type=checkbox]),select{font-size:16px}
 @media(max-width:700px){.site-header{padding:15px 18px;gap:12px;flex-wrap:wrap}.brand{font-size:23px}.student-main{margin:30px auto;padding:0 16px}.panel,.question-card{padding:22px 19px}.row{gap:15px}.row>div{min-width:200px}.student-main h1{font-size:28px}.student-main h2{font-size:21px}.option{padding:13px 12px;gap:10px}footer{margin-top:25px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+.filter-groups{display:grid;gap:14px;margin-top:14px}.student-main .filter-groups .actions{margin-top:6px}.student-main .filter-groups .actions .button{min-height:40px;padding:6px 13px;font-size:14px}.student-main .filter-groups .actions .button[aria-pressed=true]{background:var(--green);color:white}
