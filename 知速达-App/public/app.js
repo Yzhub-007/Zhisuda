@@ -1,6 +1,7 @@
 import { $, mk, api, error, download, highlightQuote } from "./shared.js";
 import { getModelConfig, isModelConfigured, setServerModel, setModelBusy } from "./model-settings.js";
 import { readSession, writeSession, sessionKey } from "./practice-storage.js";
+import { saveImportDraft, loadImportDraft, clearImportDraft } from "./import-draft.js";
 let draft = null, selected = null, reportId = null, workspaceBusy = false, publications = [], sourceDocument = null, importBusy = false, generating = false;
 let latestGeneration = null, generationClock = null;
 const edits = new Map(), editing = new Set();
@@ -67,8 +68,20 @@ function mixPayload() {
   return { ...(types.length < 2 ? { questionTypes: types } : {}), ...(levels.length < 3 ? { levels } : {}) };
 }
 function updateGenerate() { $("gen").disabled = generating || !checked("qtype").length || !checked("qlevel").length || importBusy || value("source").length < 200 || scopeChars() < 200; }
+let importSaveTimer = null;
+function persistImport() {
+  clearTimeout(importSaveTimer);
+  importSaveTimer = setTimeout(() => {
+    try {
+      if (!value("source")) { clearImportDraft(localStorage); return; }
+      saveImportDraft(localStorage, { source: value("source"), course: value("course"), topic: value("topic"), goal: value("goal"), sourceDocument, scope: sourceDocument ? scope : null });
+    } catch {}
+  }, 300);
+}
 function previewImport() {
   const count = value("source").length;
+  $("clearImport").hidden = !count;
+  persistImport();
   $("sourceCount").textContent = sourceDocument ? sourceDocument.name + " · " + count.toLocaleString() + " 字符 · " + sourceDocument.blocks.length + (sourceDocument.kind === "pdf" ? " 个有文字的页面" : " 个非空段落") : count ? count.toLocaleString() + " 字符 · 按粘贴文字定位" : "尚未导入资料";
   $("togglePreview").hidden = !sourceDocument;
   $("importWarnings").hidden = !sourceDocument?.warnings?.length;
@@ -98,16 +111,23 @@ function renderScope() {
   $("scopeList").replaceChildren(...scopeGroups.map(g => {
     const label = mk("label", "", "scope-item"), box = document.createElement("input");
     box.type = "checkbox"; box.checked = g.ids.every(id => scope.has(id));
-    box.onchange = () => { g.ids.forEach(id => box.checked ? scope.add(id) : scope.delete(id)); renderScope(); updateGenerate(); };
+    box.onchange = () => { g.ids.forEach(id => box.checked ? scope.add(id) : scope.delete(id)); renderScope(); updateGenerate(); persistImport(); };
     const text = mk("span", g.name); text.append(mk("small", `${g.chars.toLocaleString()} 字符`)); label.append(box, text); return label;
   }));
   const chars = sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0);
   $("scopeSummary").textContent = `已选 ${scope.size} / ${sourceDocument.blocks.length} 个${sourceDocument.kind === "pdf" ? "页面" : "段落"} · ${chars.toLocaleString()} 字符` + (chars < 200 ? "（不足 200 字，请多选）" : "");
 }
 function resetScope() { scopeGroups = sourceDocument ? groupBlocks(sourceDocument) : []; scope = new Set(sourceDocument?.blocks.map(b => b.id) || []); renderScope(); }
+["course", "topic", "goal"].forEach(id => $(id).addEventListener("input", persistImport));
+$("clearImport").onclick = () => {
+  if (generating || !confirm("清空本页的课程文字、文件位置和范围选择？已保存的草稿和复习包不受影响。")) return;
+  $("source").value = ""; sourceDocument = null; resetScope(); $("importStatus").textContent = "已清空导入内容。";
+  clearTimeout(importSaveTimer); try { clearImportDraft(localStorage); } catch {}
+  previewImport();
+};
 document.querySelectorAll("input[name=qtype],input[name=qlevel]").forEach(i => i.addEventListener("change", updateGenerate));
-$("scopeAll").onclick = () => { scope = new Set(sourceDocument.blocks.map(b => b.id)); renderScope(); updateGenerate(); };
-$("scopeNone").onclick = () => { scope = new Set(); renderScope(); updateGenerate(); };
+$("scopeAll").onclick = () => { scope = new Set(sourceDocument.blocks.map(b => b.id)); renderScope(); updateGenerate(); persistImport(); };
+$("scopeNone").onclick = () => { scope = new Set(); renderScope(); updateGenerate(); persistImport(); };
 $("source").oninput = () => {
   if (sourceDocument && value("source") !== sourceDocument.text) {
     sourceDocument = null; resetScope(); $("importStatus").textContent = "你已修改提取文字，来源改为粘贴文字定位；重新上传文件可以恢复文件位置。";
@@ -299,8 +319,9 @@ async function create(kind) {
       catch (e) { error("actionErr", "草稿已保存。" + e.message); }
     }
   } catch (e) {
-    error("genErr", e.message);
-    if (kind !== "demo") showGeneration({ ...latestGeneration, stage: "failed", error: e.message });
+    const kept = kind === "demo" ? "" : " 课程资料仍保留在本页并暂存于当前浏览器，可调整后重试；不会自动重新调用模型。";
+    error("genErr", e.message + kept);
+    if (kind !== "demo") showGeneration({ ...latestGeneration, stage: "failed", error: e.message + kept });
   }
   finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); button.textContent = label; $("demo").disabled = false; $("source").disabled = false; $("fileInput").disabled = false; updateGenerate(); renderDraft(); }
 }
@@ -427,6 +448,13 @@ async function init() {
   const requestedView = new URLSearchParams(location.search).get("view");
   const view = requestedView || restored("lastView") || "import";
   if (id) await loadDraft(id);
+  let saved = null; try { saved = loadImportDraft(localStorage); } catch {}
+  if (saved && !$("source").value) {
+    $("source").value = saved.source; $("course").value = saved.course; $("topic").value = saved.topic; if (saved.goal) $("goal").value = saved.goal;
+    sourceDocument = saved.sourceDocument; resetScope();
+    if (saved.scope) { scope = new Set(saved.scope); renderScope(); }
+    $("importStatus").textContent = "已恢复上次的导入资料（仅保存在当前浏览器，不含 API 密钥）。不需要时可点击“清空资料”。";
+  }
   previewImport(); showView(["import", "review", "library"].includes(view) ? view : "import");
   const jobId = state.activeJobId || restored("activeJob");
   if (jobId) {
@@ -436,7 +464,7 @@ async function init() {
       const result = await waitGeneration(jobId); draft = result.draft; store("activeJob", ""); store("lastDraft", draft.id);
       selected = draft.questions[0].id; await refreshState(); renderDraft(); showView("review");
       if (restored("jobPracticeMode") === "direct") await startDirectPractice();
-    } catch (e) { store("activeJob", ""); showGeneration({ ...latestGeneration, stage: "failed", error: e.message + " 不会自动重新调用模型。" }); error("genErr", e.message + " 不会自动重新调用模型。"); }
+    } catch (e) { store("activeJob", ""); showGeneration({ ...latestGeneration, stage: "failed", error: e.message + " 不会自动重新调用模型；课程资料仍保留在导入页。" }); error("genErr", e.message + " 不会自动重新调用模型；课程资料仍保留在导入页。"); }
     finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); $("demo").disabled = false; updateGenerate(); renderDraft(); }
   }
 }
