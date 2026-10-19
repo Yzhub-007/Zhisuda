@@ -79,6 +79,13 @@
   <p id="generationTime" class="small muted"></p><p id="generationNote" class="small muted">模型出题通常最久，移动条表示仍在等待，不代表完成百分比。刷新页面会接回当前任务，不会重复发起生成；服务重启会中断任务。</p>
   <button id="minimizeGeneration" class="button secondary">收起进度，继续浏览</button>
 </dialog>
+<dialog id="scopeConfirm" class="model-dialog" aria-labelledby="scopeConfirmTitle" aria-describedby="scopeConfirmSummary">
+  <p class="eyebrow">资料较长，先确认范围</p><h2 id="scopeConfirmTitle">这次会用到这些内容</h2><p id="scopeConfirmSummary" class="good-text"></p>
+  <ol id="scopeConfirmList" class="small"></ol>
+  <details id="scopeConfirmSkipped" hidden><summary class="small">查看跳过的部分（不会发送）</summary><ol id="scopeConfirmSkippedList" class="small muted"></ol></details>
+  <p id="scopeConfirmWarnings" class="notice small" hidden></p><p id="scopeConfirmHint" class="small muted"></p>
+  <div class="actions"><button id="scopeConfirmOk" class="button primary" type="button">确认范围，开始生成</button><button id="scopeConfirmBack" class="button secondary" type="button">返回修改范围</button></div>
+</dialog>
 <dialog id="modelDialog" class="model-dialog" aria-labelledby="modelTitle" aria-describedby="modelIntro">
   <div class="section-title"><div><p class="eyebrow">你的模型，你来选择</p><h2 id="modelTitle">模型设置</h2></div><button id="closeModel" class="text-button" type="button">关闭</button></div>
   <p id="modelIntro" class="muted small">支持兼容对话接口的官方服务和中转站。费用由你填写的账号承担，知速达不收取模型调用费。</p>

@@ -2,6 +2,7 @@ import { $, mk, api, error, download, highlightQuote } from "./shared.js";
 import { getModelConfig, isModelConfigured, setServerModel, setModelBusy } from "./model-settings.js";
 import { readSession, writeSession, sessionKey } from "./practice-storage.js";
 import { saveImportDraft, loadImportDraft, clearImportDraft } from "./import-draft.js";
+import { groupBlocks, outline, needsScopeConfirm, scopeKey } from "./scope-outline.js";
 let draft = null, selected = null, reportId = null, workspaceBusy = false, publications = [], sourceDocument = null, importBusy = false, generating = false;
 let latestGeneration = null, generationClock = null;
 const edits = new Map(), editing = new Set();
@@ -94,15 +95,6 @@ function previewImport() {
 }
 // 章节／页面选择：DOCX 按标题分组，PDF 每页一组；粘贴文字没有可靠结构，不提供。
 let scope = new Set(), scopeGroups = [];
-function groupBlocks(doc) {
-  if (doc.kind === "pdf") return doc.blocks.map(b => ({ name: b.label, ids: [b.id], chars: b.text.length }));
-  const groups = [];
-  for (const b of doc.blocks) {
-    const name = b.label.replace(/ · 第 \d+ 段$/, "") || "正文", last = groups.at(-1);
-    if (last && last.name === name) { last.ids.push(b.id); last.chars += b.text.length; } else groups.push({ name, ids: [b.id], chars: b.text.length });
-  }
-  return groups;
-}
 function scopeBlockIds() { return sourceDocument && scopeGroups.length > 1 && scope.size < sourceDocument.blocks.length ? [...scope] : undefined; }
 function renderScope() {
   const show = Boolean(sourceDocument) && scopeGroups.length > 1;
@@ -397,7 +389,34 @@ $("backupWorkspace").onclick = async () => {
   } catch (e) { $("legacyStatus").textContent = "备份未完成：" + e.message; }
   finally { $("backupWorkspace").disabled = false; }
 };
-$("gen").onclick = () => create("live"); $("demo").onclick = () => create("demo");
+// 材料较长时先确认目录与范围；Esc 或“返回修改”都不会发送资料。
+let confirmedScope = null;
+function confirmScope() {
+  const chars = scopeChars(), total = value("source").length, key = scopeKey(sourceDocument, value("source"), scopeBlockIds());
+  if (!needsScopeConfirm(chars) || confirmedScope === key) return Promise.resolve(true);
+  const dialog = $("scopeConfirm"), { selected, skipped } = outline(scopeGroups, scope);
+  const unit = sourceDocument?.kind === "pdf" ? "页" : "个章节";
+  $("scopeConfirmSummary").textContent = `将发送 ${chars.toLocaleString()} / ${total.toLocaleString()} 字符给你设置的模型` + (scopeGroups.length > 1 ? `，包含 ${selected.length} ${unit}，跳过 ${skipped.length} ${unit}。` : "。");
+  const row = item => mk("li", item.name + (item.chars === null ? " · 部分段落" : ` · ${item.chars.toLocaleString()} 字符`));
+  $("scopeConfirmList").replaceChildren(...(scopeGroups.length > 1 ? selected.map(row) : [mk("li", sourceDocument ? "整份资料（没有识别到可分组的标题）" : "粘贴的文字（没有目录结构，按段落定位）")]));
+  $("scopeConfirmSkipped").hidden = !skipped.length;
+  $("scopeConfirmSkippedList").replaceChildren(...skipped.map(row));
+  $("scopeConfirmWarnings").hidden = !sourceDocument?.warnings?.length;
+  $("scopeConfirmWarnings").textContent = sourceDocument?.warnings?.join(" ") || "";
+  $("scopeConfirmHint").textContent = scopeGroups.length > 1 ? "目录来自 Word 标题或 PDF 页序，请检查顺序和缺失内容。范围越集中，题目越聚焦、等待也越短。" : sourceDocument ? "这份文件没有可用的标题样式，无法按章节选择；如只想复习一部分，可在 Word 中给章节标题设置“标题”样式后重新导入。" : "粘贴文字无法按章节选择；如只想复习一部分，可删去不需要的内容或导入带标题的 Word 文件。";
+  return new Promise(resolve => {
+    dialog.returnValue = "";
+    dialog.onclose = () => { const ok = dialog.returnValue === "ok"; if (ok) confirmedScope = key; resolve(ok); };
+    dialog.showModal(); $("scopeConfirmOk").focus();
+  });
+}
+$("scopeConfirmOk").onclick = () => $("scopeConfirm").close("ok");
+$("scopeConfirmBack").onclick = () => $("scopeConfirm").close("back");
+$("gen").onclick = async () => {
+  if (generating || importBusy) return;
+  if (isModelConfigured() && !edits.size && !(await confirmScope())) { $("importStatus").textContent = "尚未发送资料。可在左侧调整复习范围后再生成。"; ($("scopeBox").hidden ? $("source") : $("scopeBox")).scrollIntoView({ block: "center" }); return; }
+  create("live");
+}; $("demo").onclick = () => create("demo");
 async function startDirectPractice() {
   const { publication } = await api("/api/drafts/" + draft.id + "/publish", "POST", { revision: draft.revision, reviewMode: "self-study" });
   store("lastView", "library");
