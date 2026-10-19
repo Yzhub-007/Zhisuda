@@ -46,7 +46,18 @@ async function refreshState() {
     };
     actions.append(report, exp, copy); li.append(actions); return li;
   }));
+  refreshDue();
   updateGenerate(); return state;
+}
+// 首页提示今天到期的错题；读取失败不影响其他功能。
+async function refreshDue() {
+  try {
+    const { mistakes } = await api("/api/mistakes"), due = mistakes.filter(m => m.due).length;
+    const node = $("dueSummary"); node.hidden = !mistakes.length;
+    if (!mistakes.length) return;
+    node.replaceChildren(due ? mk("span", `今天有 ${due} 道题到了复习时间。`) : mk("span", "今天没有到期的错题。"));
+    if (due) { const link = mk("a", " 去复习 →"); link.href = "/mistakes.html?filter=due"; node.append(link); }
+  } catch { $("dueSummary").hidden = true; }
 }
 function scopeChars() { return sourceDocument ? sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0) : value("source").length; }
 const checked = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(i => i.value);
