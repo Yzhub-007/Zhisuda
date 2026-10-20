@@ -12,6 +12,22 @@ import { demoInput } from "./lib/demo.js";
 import { createStore } from "./lib/store.js";
 import { createModelVault, localSaveSupported, resolveModelConfig } from "./lib/model-vault.js";
 import { importDocument, validateDocument, scopeDocument, MAX_FILE } from "./lib/sources.js";
+import { deployConfig, clientAddress, createLimiter, originAllowed } from "./lib/deploy.js";
+
+let deploy;
+try {
+  deploy = deployConfig();
+  // 公开服务不使用开发者的共享密钥：否则任何访客省略自己的设置就会消耗它。
+  if (deploy.publicMode && process.env.LLM_API_KEY) throw new Error("公开部署不允许配置 LLM_API_KEY（共享密钥）。请移除它，让使用者填写自己的 API。");
+} catch (e) { console.error(e.message); process.exit(1); }
+const rateNumber = (name, fallback) => { const value = Number(process.env[name]); return Number.isInteger(value) && value > 0 ? value : fallback; };
+// 公开部署的请求频率限制（按客户端地址、每 10 分钟）。本机模式不启用。
+const limits = deploy.publicMode ? {
+  model: createLimiter(rateNumber("ZHISUDA_RATE_MODEL", 12), 600_000),
+  upload: createLimiter(rateNumber("ZHISUDA_RATE_UPLOAD", 30), 600_000),
+  write: createLimiter(rateNumber("ZHISUDA_RATE_WRITE", 300), 600_000),
+} : null;
+const MODEL_ROUTES = ["/api/generate", "/api/generation-jobs", "/api/model/test", "/api/feedback"];
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const MAX_BODY = 900_000; // 含提取文字和位置数据；中文 UTF-8 通常每字3字节
@@ -23,7 +39,7 @@ function workspace(req, res) {
   let token = req.headers.cookie?.split(";").map(s => s.trim()).find(s => s.startsWith("zhisuda_workspace="))?.slice(18);
   if (!/^[0-9a-f-]{36}$/.test(token || "")) {
     token = randomUUID();
-    res.setHeader("Set-Cookie", `zhisuda_workspace=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
+    res.setHeader("Set-Cookie", `zhisuda_workspace=${token}; HttpOnly; SameSite=${deploy.sameSite}; Path=/; Max-Age=31536000${deploy.publicMode ? "; Secure" : ""}`);
   }
   const directory = path.join(DATA, "workspaces", token);
   if (!stores.has(token)) stores.set(token, createStore(directory));
@@ -95,13 +111,24 @@ async function getPublication(store, id) {
 }
 
 async function handle(req, res) {
-  if (!/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(req.headers.host || "")) return send(res, 403, { error: "请使用本机地址打开知速达。" });
+  // 本机模式只接受本机主机名（防 DNS 重绑定）；公开模式的写请求改由精确的 Origin 白名单保护。
+  if (!deploy.publicMode && !/^(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(req.headers.host || "")) return send(res, 403, { error: "请使用本机地址打开知速达。" });
   const url = new URL(req.url, "http://localhost");
+  if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true });
   if (!["GET", "HEAD"].includes(req.method)) {
-    // 本地工作台也拒绝来自其他网站的写请求，防止意外写入或触发模型调用。
-    if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return send(res, 403, { error: "请从本地工作台发起请求。" });
+    // 拒绝来自其他网站的写请求，防止意外写入或触发模型调用。
+    const origin = req.headers.origin;
+    if (origin && !(deploy.publicMode ? originAllowed(origin, req, deploy) : origin === `http://${req.headers.host}`)) {
+      // 记录被拒绝的来源与域名（不含密钥或正文），便于排查代理改写 Host 的情况。
+      if (deploy.publicMode) console.warn("拒绝跨来源写请求", JSON.stringify({ origin: origin.slice(0, 200), host: String(req.headers.host ?? "").slice(0, 200), forwardedHost: String(req.headers["x-forwarded-host"] ?? "").slice(0, 200) }));
+      return send(res, 403, { error: deploy.publicMode ? "请求来源不在允许范围内，请从正式网址打开知速达。" : "请从本地工作台发起请求。" });
+    }
     const allowed = url.pathname === "/api/import" ? req.headers["content-type"] === "application/octet-stream" : req.headers["content-type"]?.startsWith("application/json");
     if (!allowed) return send(res, 415, { error: "请求格式不正确，请从页面重新操作。" });
+    if (limits) {
+      const kind = MODEL_ROUTES.includes(url.pathname) ? "model" : url.pathname === "/api/import" ? "upload" : "write";
+      if (!limits[kind](`${kind}:${clientAddress(req, deploy.proxyHops)}`)) return send(res, 429, { error: kind === "model" ? "生成请求过于频繁，请 10 分钟后再试。" : "操作过于频繁，请稍后再试。" });
+    }
   }
 
   const { store, vault, token } = workspace(req, res);
@@ -381,6 +408,6 @@ const server = http.createServer((req, res) => {
 
 const port = process.env.PORT === undefined ? 3000 : Number(process.env.PORT);
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("PORT 需要是0—65535之间的整数。");
-// 只监听本机：本服务没有登录认证，不要直接暴露到公网
-server.listen(port, "127.0.0.1", () => console.log(`知速达已启动：http://127.0.0.1:${server.address().port}`));
+// 默认只监听本机：本服务没有登录认证。只有 ZHISUDA_PUBLIC=1 并配置精确来源后才会监听其他地址。
+server.listen(port, deploy.host, () => console.log(`知速达已启动：http://${deploy.host}:${server.address().port}${deploy.publicMode ? `（公开部署模式，来源校验：${deploy.origins.size ? "名单" : "同源"}）` : ""}`));
 server.on("error", e => { console.error(e.code === "EADDRINUSE" ? "端口正在被占用，请关闭另一个知速达窗口，或使用其他 PORT 重试。" : "服务启动失败，请检查端口和数据目录。"); process.exitCode = 1; });

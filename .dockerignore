@@ -1,0 +1,20 @@
+# 密钥与本地数据不进入镜像
+.env
+.env.*
+**/.env
+**/.env.*
+知速达-App/data
+知速达-App/_verification
+_verification
+
+# 依赖在镜像里重新安装
+**/node_modules
+
+# 体积大且与运行无关的材料
+.git
+参赛材料
+*.mp4
+*.pdf
+*.docx
+讲义
+*.md
