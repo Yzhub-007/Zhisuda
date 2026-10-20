@@ -53,7 +53,8 @@ const checked = name => [...document.querySelectorAll(`input[name=${name}]:check
 // 全选等同不限制，不向服务端发送，保持旧行为。
 function mixPayload() {
   const types = checked("qtype"), levels = checked("qlevel");
-  return { ...(types.length < 2 ? { questionTypes: types } : {}), ...(levels.length < 3 ? { levels } : {}) };
+  const type = types[0];
+  return { ...(type && type !== "全部" ? { questionTypes: [type] } : {}), ...(levels.length < 3 ? { levels } : {}) };
 }
 function updateGenerate() { $("gen").disabled = generating || !checked("qtype").length || !checked("qlevel").length || importBusy || value("source").length < 200 || scopeChars() < 200; }
 function previewImport() {

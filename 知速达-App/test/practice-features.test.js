@@ -135,4 +135,11 @@ test("题型与难度组合：只生成所选组合，非法取值被拒绝", as
   assert.ok(draft.questions.length >= 1);
   assert.ok(draft.questions.every(q => q.type === "选择" && ["基础", "标准"].includes(q.level)));
   assert.deepEqual(draft.generation.questionTypes, ["选择"]);
+  const { jobId: writtenJobId } = await req("/api/generation-jobs", "POST", { ...base, questionTypes: ["简答"] }, 202); let writtenJob;
+  for (let i = 0; i < 50; i++) { ({ job: writtenJob } = await req("/api/generation-jobs/" + writtenJobId)); if (["done", "failed"].includes(writtenJob.stage)) break; await new Promise(r => setTimeout(r, 20)); }
+  assert.equal(writtenJob.stage, "done", writtenJob.error);
+  const { draft: writtenDraft } = await req("/api/drafts/" + writtenJob.draftId);
+  assert.ok(writtenDraft.questions.length >= 1);
+  assert.ok(writtenDraft.questions.every(q => q.type === "简答"));
+  assert.deepEqual(writtenDraft.generation.questionTypes, ["简答"]);
 });

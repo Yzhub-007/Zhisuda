@@ -13,6 +13,10 @@ Thumbs.db
 *.pdf
 *.docx
 
+# 仅允许发布自编的比赛成品，课程 PDF 仍默认忽略
+!参赛材料/知速达-商业一页纸.pdf
+!参赛材料/知速达-Demo演示.pdf
+
 # 本地演示数据（包含课程片段和学生反馈，不进入公开仓库）
 知速达-App/data/
 知速达-App/_verification/
