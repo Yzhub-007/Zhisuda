@@ -1,6 +1,8 @@
 import { $, mk, api, error, download, highlightQuote } from "./shared.js";
 import { getModelConfig, isModelConfigured, setServerModel, setModelBusy } from "./model-settings.js";
 import { readSession, writeSession, sessionKey } from "./practice-storage.js";
+import { saveImportDraft, loadImportDraft, clearImportDraft } from "./import-draft.js";
+import { groupBlocks, outline, needsScopeConfirm, scopeKey } from "./scope-outline.js";
 let draft = null, selected = null, reportId = null, workspaceBusy = false, publications = [], sourceDocument = null, importBusy = false, generating = false;
 let latestGeneration = null, generationClock = null;
 const edits = new Map(), editing = new Set();
@@ -46,7 +48,18 @@ async function refreshState() {
     };
     actions.append(report, exp, copy); li.append(actions); return li;
   }));
+  refreshDue();
   updateGenerate(); return state;
+}
+// 首页提示今天到期的错题；读取失败不影响其他功能。
+async function refreshDue() {
+  try {
+    const { mistakes } = await api("/api/mistakes"), due = mistakes.filter(m => m.due).length;
+    const node = $("dueSummary"); node.hidden = !mistakes.length;
+    if (!mistakes.length) return;
+    node.replaceChildren(due ? mk("span", `今天有 ${due} 道题到了复习时间。`) : mk("span", "今天没有到期的错题。"));
+    if (due) { const link = mk("a", " 去复习 →"); link.href = "/mistakes.html?filter=due"; node.append(link); }
+  } catch { $("dueSummary").hidden = true; }
 }
 function scopeChars() { return sourceDocument ? sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0) : value("source").length; }
 const checked = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(i => i.value);
@@ -57,8 +70,20 @@ function mixPayload() {
   return { ...(type && type !== "全部" ? { questionTypes: [type] } : {}), ...(levels.length < 3 ? { levels } : {}) };
 }
 function updateGenerate() { $("gen").disabled = generating || !checked("qtype").length || !checked("qlevel").length || importBusy || value("source").length < 200 || scopeChars() < 200; }
+let importSaveTimer = null;
+function persistImport() {
+  clearTimeout(importSaveTimer);
+  importSaveTimer = setTimeout(() => {
+    try {
+      if (!value("source")) { clearImportDraft(localStorage); return; }
+      saveImportDraft(localStorage, { source: value("source"), course: value("course"), topic: value("topic"), goal: value("goal"), sourceDocument, scope: sourceDocument ? scope : null });
+    } catch {}
+  }, 300);
+}
 function previewImport() {
   const count = value("source").length;
+  $("clearImport").hidden = !count;
+  persistImport();
   $("sourceCount").textContent = sourceDocument ? sourceDocument.name + " · " + count.toLocaleString() + " 字符 · " + sourceDocument.blocks.length + (sourceDocument.kind === "pdf" ? " 个有文字的页面" : " 个非空段落") : count ? count.toLocaleString() + " 字符 · 按粘贴文字定位" : "尚未导入资料";
   $("togglePreview").hidden = !sourceDocument;
   $("importWarnings").hidden = !sourceDocument?.warnings?.length;
@@ -71,15 +96,6 @@ function previewImport() {
 }
 // 章节／页面选择：DOCX 按标题分组，PDF 每页一组；粘贴文字没有可靠结构，不提供。
 let scope = new Set(), scopeGroups = [];
-function groupBlocks(doc) {
-  if (doc.kind === "pdf") return doc.blocks.map(b => ({ name: b.label, ids: [b.id], chars: b.text.length }));
-  const groups = [];
-  for (const b of doc.blocks) {
-    const name = b.label.replace(/ · 第 \d+ 段$/, "") || "正文", last = groups.at(-1);
-    if (last && last.name === name) { last.ids.push(b.id); last.chars += b.text.length; } else groups.push({ name, ids: [b.id], chars: b.text.length });
-  }
-  return groups;
-}
 function scopeBlockIds() { return sourceDocument && scopeGroups.length > 1 && scope.size < sourceDocument.blocks.length ? [...scope] : undefined; }
 function renderScope() {
   const show = Boolean(sourceDocument) && scopeGroups.length > 1;
@@ -88,16 +104,23 @@ function renderScope() {
   $("scopeList").replaceChildren(...scopeGroups.map(g => {
     const label = mk("label", "", "scope-item"), box = document.createElement("input");
     box.type = "checkbox"; box.checked = g.ids.every(id => scope.has(id));
-    box.onchange = () => { g.ids.forEach(id => box.checked ? scope.add(id) : scope.delete(id)); renderScope(); updateGenerate(); };
+    box.onchange = () => { g.ids.forEach(id => box.checked ? scope.add(id) : scope.delete(id)); renderScope(); updateGenerate(); persistImport(); };
     const text = mk("span", g.name); text.append(mk("small", `${g.chars.toLocaleString()} 字符`)); label.append(box, text); return label;
   }));
   const chars = sourceDocument.blocks.filter(b => scope.has(b.id)).reduce((n, b) => n + b.text.length, 0);
   $("scopeSummary").textContent = `已选 ${scope.size} / ${sourceDocument.blocks.length} 个${sourceDocument.kind === "pdf" ? "页面" : "段落"} · ${chars.toLocaleString()} 字符` + (chars < 200 ? "（不足 200 字，请多选）" : "");
 }
 function resetScope() { scopeGroups = sourceDocument ? groupBlocks(sourceDocument) : []; scope = new Set(sourceDocument?.blocks.map(b => b.id) || []); renderScope(); }
+["course", "topic", "goal"].forEach(id => $(id).addEventListener("input", persistImport));
+$("clearImport").onclick = () => {
+  if (generating || !confirm("清空本页的课程文字、文件位置和范围选择？已保存的草稿和复习包不受影响。")) return;
+  $("source").value = ""; sourceDocument = null; resetScope(); $("importStatus").textContent = "已清空导入内容。";
+  clearTimeout(importSaveTimer); try { clearImportDraft(localStorage); } catch {}
+  previewImport();
+};
 document.querySelectorAll("input[name=qtype],input[name=qlevel]").forEach(i => i.addEventListener("change", updateGenerate));
-$("scopeAll").onclick = () => { scope = new Set(sourceDocument.blocks.map(b => b.id)); renderScope(); updateGenerate(); };
-$("scopeNone").onclick = () => { scope = new Set(); renderScope(); updateGenerate(); };
+$("scopeAll").onclick = () => { scope = new Set(sourceDocument.blocks.map(b => b.id)); renderScope(); updateGenerate(); persistImport(); };
+$("scopeNone").onclick = () => { scope = new Set(); renderScope(); updateGenerate(); persistImport(); };
 $("source").oninput = () => {
   if (sourceDocument && value("source") !== sourceDocument.text) {
     sourceDocument = null; resetScope(); $("importStatus").textContent = "你已修改提取文字，来源改为粘贴文字定位；重新上传文件可以恢复文件位置。";
@@ -289,8 +312,9 @@ async function create(kind) {
       catch (e) { error("actionErr", "草稿已保存。" + e.message); }
     }
   } catch (e) {
-    error("genErr", e.message);
-    if (kind !== "demo") showGeneration({ ...latestGeneration, stage: "failed", error: e.message });
+    const kept = kind === "demo" ? "" : " 课程资料仍保留在本页并暂存于当前浏览器，可调整后重试；不会自动重新调用模型。";
+    error("genErr", e.message + kept);
+    if (kind !== "demo") showGeneration({ ...latestGeneration, stage: "failed", error: e.message + kept });
   }
   finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); button.textContent = label; $("demo").disabled = false; $("source").disabled = false; $("fileInput").disabled = false; updateGenerate(); renderDraft(); }
 }
@@ -366,7 +390,34 @@ $("backupWorkspace").onclick = async () => {
   } catch (e) { $("legacyStatus").textContent = "备份未完成：" + e.message; }
   finally { $("backupWorkspace").disabled = false; }
 };
-$("gen").onclick = () => create("live"); $("demo").onclick = () => create("demo");
+// 材料较长时先确认目录与范围；Esc 或“返回修改”都不会发送资料。
+let confirmedScope = null;
+function confirmScope() {
+  const chars = scopeChars(), total = value("source").length, key = scopeKey(sourceDocument, value("source"), scopeBlockIds());
+  if (!needsScopeConfirm(chars) || confirmedScope === key) return Promise.resolve(true);
+  const dialog = $("scopeConfirm"), { selected, skipped } = outline(scopeGroups, scope);
+  const unit = sourceDocument?.kind === "pdf" ? "页" : "个章节";
+  $("scopeConfirmSummary").textContent = `将发送 ${chars.toLocaleString()} / ${total.toLocaleString()} 字符给你设置的模型` + (scopeGroups.length > 1 ? `，包含 ${selected.length} ${unit}，跳过 ${skipped.length} ${unit}。` : "。");
+  const row = item => mk("li", item.name + (item.chars === null ? " · 部分段落" : ` · ${item.chars.toLocaleString()} 字符`));
+  $("scopeConfirmList").replaceChildren(...(scopeGroups.length > 1 ? selected.map(row) : [mk("li", sourceDocument ? "整份资料（没有识别到可分组的标题）" : "粘贴的文字（没有目录结构，按段落定位）")]));
+  $("scopeConfirmSkipped").hidden = !skipped.length;
+  $("scopeConfirmSkippedList").replaceChildren(...skipped.map(row));
+  $("scopeConfirmWarnings").hidden = !sourceDocument?.warnings?.length;
+  $("scopeConfirmWarnings").textContent = sourceDocument?.warnings?.join(" ") || "";
+  $("scopeConfirmHint").textContent = scopeGroups.length > 1 ? "目录来自 Word 标题或 PDF 页序，请检查顺序和缺失内容。范围越集中，题目越聚焦、等待也越短。" : sourceDocument ? "这份文件没有可用的标题样式，无法按章节选择；如只想复习一部分，可在 Word 中给章节标题设置“标题”样式后重新导入。" : "粘贴文字无法按章节选择；如只想复习一部分，可删去不需要的内容或导入带标题的 Word 文件。";
+  return new Promise(resolve => {
+    dialog.returnValue = "";
+    dialog.onclose = () => { const ok = dialog.returnValue === "ok"; if (ok) confirmedScope = key; resolve(ok); };
+    dialog.showModal(); $("scopeConfirmOk").focus();
+  });
+}
+$("scopeConfirmOk").onclick = () => $("scopeConfirm").close("ok");
+$("scopeConfirmBack").onclick = () => $("scopeConfirm").close("back");
+$("gen").onclick = async () => {
+  if (generating || importBusy) return;
+  if (isModelConfigured() && !edits.size && !(await confirmScope())) { $("importStatus").textContent = "尚未发送资料。可在左侧调整复习范围后再生成。"; ($("scopeBox").hidden ? $("source") : $("scopeBox")).scrollIntoView({ block: "center" }); return; }
+  create("live");
+}; $("demo").onclick = () => create("demo");
 async function startDirectPractice() {
   const { publication } = await api("/api/drafts/" + draft.id + "/publish", "POST", { revision: draft.revision, reviewMode: "self-study" });
   store("lastView", "library");
@@ -417,6 +468,13 @@ async function init() {
   const requestedView = new URLSearchParams(location.search).get("view");
   const view = requestedView || restored("lastView") || "import";
   if (id) await loadDraft(id);
+  let saved = null; try { saved = loadImportDraft(localStorage); } catch {}
+  if (saved && !$("source").value) {
+    $("source").value = saved.source; $("course").value = saved.course; $("topic").value = saved.topic; if (saved.goal) $("goal").value = saved.goal;
+    sourceDocument = saved.sourceDocument; resetScope();
+    if (saved.scope) { scope = new Set(saved.scope); renderScope(); }
+    $("importStatus").textContent = "已恢复上次的导入资料（仅保存在当前浏览器，不含 API 密钥）。不需要时可点击“清空资料”。";
+  }
   previewImport(); showView(["import", "review", "library"].includes(view) ? view : "import");
   const jobId = state.activeJobId || restored("activeJob");
   if (jobId) {
@@ -426,7 +484,7 @@ async function init() {
       const result = await waitGeneration(jobId); draft = result.draft; store("activeJob", ""); store("lastDraft", draft.id);
       selected = draft.questions[0].id; await refreshState(); renderDraft(); showView("review");
       if (restored("jobPracticeMode") === "direct") await startDirectPractice();
-    } catch (e) { store("activeJob", ""); showGeneration({ ...latestGeneration, stage: "failed", error: e.message + " 不会自动重新调用模型。" }); error("genErr", e.message + " 不会自动重新调用模型。"); }
+    } catch (e) { store("activeJob", ""); showGeneration({ ...latestGeneration, stage: "failed", error: e.message + " 不会自动重新调用模型；课程资料仍保留在导入页。" }); error("genErr", e.message + " 不会自动重新调用模型；课程资料仍保留在导入页。"); }
     finally { finishGeneration(); generating = false; workspaceBusy = false; setModelBusy(false); $("demo").disabled = false; updateGenerate(); renderDraft(); }
   }
 }
